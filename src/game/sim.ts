@@ -306,7 +306,7 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     }
 
     if (sim.chapter === 1 && near(p.x, p.z, ZONES.door)) {
-      sim.prompt = "F · Enter Molt 54";
+      sim.prompt = "F · Enter sterleone";
       if (actions.enter) {
         p.x = 9.4;
         p.z = 2;
