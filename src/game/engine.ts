@@ -7,7 +7,7 @@ import { CHAPTERS, FIXED, clamp, inAlley, inClub, lerp } from "./constants";
 import { createInput, type Actions } from "./input";
 import { createAudio } from "./audio";
 import { animatePerson, makePerson, makeTesla } from "./meshes";
-import { blipOf, createSim, objectiveOf, resetSim, stepSim, type Sim } from "./sim";
+import { applyLead, blipOf, createSim, objectiveOf, resetSim, stepSim, type Sim } from "./sim";
 import { useGameStore } from "./store";
 import { buildWorld } from "./world";
 
@@ -34,7 +34,7 @@ export function createGame(canvas: HTMLCanvasElement) {
     powerPreference: "high-performance",
   });
   renderer.setClearColor(0x07080e, 1);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.22;
@@ -90,6 +90,7 @@ export function createGame(canvas: HTMLCanvasElement) {
   const sim: Sim = createSim();
   const input = createInput();
   const audio = createAudio();
+  let audioMutedOnce = false;
 
   const tesla = makeTesla();
   scene.add(tesla);
@@ -212,6 +213,8 @@ export function createGame(canvas: HTMLCanvasElement) {
   }
   resize();
   window.addEventListener("resize", resize);
+  window.visualViewport?.addEventListener("resize", resize);
+  requestAnimationFrame(resize);
 
   function skipReel() {
     if (!reelOn) return;
@@ -221,6 +224,15 @@ export function createGame(canvas: HTMLCanvasElement) {
 
   function start() {
     audio.unlock();
+    applyLead(sim, useGameStore.getState().lead);
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    if (coarse && !audioMutedOnce) {
+      audioMutedOnce = true;
+      if (!useGameStore.getState().muted) {
+        const m = audio.toggleMute();
+        useGameStore.getState().patch({ muted: m });
+      }
+    }
     skipReel();
     const fx = -Math.sin(sim.player.yaw);
     const fz = -Math.cos(sim.player.yaw);
@@ -645,6 +657,7 @@ export function createGame(canvas: HTMLCanvasElement) {
       running = false;
       renderer.setAnimationLoop(null);
       window.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("resize", resize);
       input.dispose();
       world.dispose();
       composer?.dispose();

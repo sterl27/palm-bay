@@ -10,6 +10,7 @@ import {
   lerp,
   near,
   wrapPi,
+  type LeadId,
 } from "./constants";
 import type { Actions } from "./input";
 import { resolveCircle, type AABB } from "./world";
@@ -44,6 +45,7 @@ export type Sim = {
   trauma: number;
   ended: boolean;
   time: number;
+  lead: LeadId;
 };
 
 export function createSim(): Sim {
@@ -168,7 +170,12 @@ export function createSim(): Sim {
     trauma: 0,
     ended: false,
     time: 0,
+    lead: "lead",
   };
+}
+
+export function applyLead(sim: Sim, lead: LeadId) {
+  sim.lead = lead;
 }
 
 export function resetSim(sim: Sim) {
@@ -223,7 +230,7 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     if (actions.handbrake) {
       p.speed = lerp(p.speed, 0, 1 - Math.exp(-8 * dt));
     } else if (throttle > 0) {
-      p.speed = Math.min(TESLA.max, p.speed + TESLA.accel * throttle * dt);
+      p.speed = Math.min(TESLA.max, p.speed + TESLA.accel * (sim.lead === "lead" ? 1.16 : sim.lead === "quiet" ? 0.86 : 1) * throttle * dt);
     } else if (throttle < 0) {
       p.speed = Math.max(-TESLA.reverse, p.speed + TESLA.brake * throttle * dt);
     } else {
@@ -245,7 +252,8 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     p.carYaw = p.yaw;
   } else {
     p.yaw = wrapPi(p.yaw + steer * WALK_TURN * dt);
-    const want = throttle * (actions.sprint ? SPRINT_SPEED : WALK_SPEED);
+    const walkMul = sim.lead === "voice" ? 1.18 : sim.lead === "quiet" ? 0.8 : 1;
+    const want = throttle * (actions.sprint ? SPRINT_SPEED : WALK_SPEED) * walkMul;
     p.speed = lerp(p.speed, want, 1 - Math.exp(-10 * dt));
     const fx = -Math.sin(p.yaw);
     const fz = -Math.cos(p.yaw);
@@ -304,7 +312,7 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
         p.z = 2;
         p.inCar = false;
         sim.chapter = 2;
-        sim.toast = "Own the floor.";
+        sim.toast = sim.lead === "voice" ? "The room knows the voice." : "Own the floor.";
         sim.toastT = 2.4;
         events.push({ type: "door" }, { type: "chapter" });
       }
@@ -324,7 +332,7 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
           p.x = 27.2;
           p.z = 2;
           sim.chapter = 3;
-          sim.toast = "Face him.";
+          sim.toast = sim.lead === "quiet" ? "The alley is yours." : "Face him.";
           sim.toastT = 2.4;
           events.push({ type: "door" }, { type: "chapter" });
         }
@@ -334,7 +342,8 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     if (sim.chapter === 3 && near(p.x, p.z, ZONES.standoff)) {
       sim.prompt = "Hold Space — stand your ground";
       if (actions.handbrake || actions.fire) {
-        sim.hold = Math.min(1, sim.hold + dt / 1.7);
+        const holdRate = sim.lead === "quiet" ? 1.45 : sim.lead === "voice" ? 1.15 : 1;
+        sim.hold = Math.min(1, sim.hold + (dt / 1.7) * holdRate);
         if (sim.hold >= 1) {
           sim.ended = true;
           sim.toast = "";

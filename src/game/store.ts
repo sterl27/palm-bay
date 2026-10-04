@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { LeadId } from "./constants";
 
 export type Phase = "loading" | "title" | "play" | "pause" | "win";
 
@@ -22,6 +23,7 @@ export type HudSnap = {
   reel: "alley" | null;
   caption: string;
   slate: string;
+  lead: LeadId;
 };
 
 const empty: HudSnap = {
@@ -44,6 +46,7 @@ const empty: HudSnap = {
   reel: null,
   caption: "",
   slate: "",
+  lead: "lead",
 };
 
 type Bindings = {
@@ -63,6 +66,7 @@ type Store = HudSnap & {
   bindings: Bindings | null;
   bind: (b: Bindings) => void;
   patch: (p: Partial<HudSnap>) => void;
+  setLead: (lead: LeadId) => void;
 };
 
 export const useGameStore = create<Store>((set) => ({
@@ -70,4 +74,5 @@ export const useGameStore = create<Store>((set) => ({
   bindings: null,
   bind: (bindings) => set({ bindings }),
   patch: (p) => set(p),
+  setLead: (lead) => set({ lead }),
 }));

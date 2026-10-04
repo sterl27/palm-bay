@@ -28,6 +28,38 @@ export const ZONES = {
   standoff: { x: 36.2, z: 1.6, r: 3.4 },
 };
 
+
+export type LeadId = "lead" | "voice" | "quiet";
+
+export const LEADS = [
+  {
+    id: "lead",
+    label: "Lead",
+    line: "The car. The rope. The walk.",
+    face: "/avatars/hero-face.png",
+  },
+  {
+    id: "voice",
+    label: "The Voice",
+    line: "Owns the room. The floor answers.",
+    face: "/avatars/rapper-face.png",
+  },
+  {
+    id: "quiet",
+    label: "The Quiet",
+    line: "Slower step. The alley is yours.",
+    face: "/avatars/beard-face.png",
+  },
+] as const;
+
+export const BEATS = [
+  "Pull the car to the rope",
+  "Step out",
+  "Walk the carpet",
+  "Own the floor",
+  "Hold the alley",
+] as const;
+
 export const CHAPTERS = [
   {
     id: "arrival",

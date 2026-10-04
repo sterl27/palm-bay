@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pause, Volume2, VolumeX } from "lucide-react";
 import { Minimap } from "@/components/Minimap";
+import { BEATS, LEADS, type LeadId } from "@/game/constants";
 import { useGameStore } from "@/game/store";
 
 export function GameShell() {
@@ -43,16 +44,7 @@ export function GameShell() {
       {phase === "pause" && <PauseMenu />}
       {phase === "win" && <WinScreen />}
       {phase === "play" && <TouchPad />}
-      {phase === "play" && (
-        <button
-          type="button"
-          className="absolute top-12 right-3 z-30 hidden size-11 items-center justify-center rounded-md border border-border bg-ink/70 text-foam md:flex"
-          onClick={() => bindings?.pause()}
-          aria-label="Pause"
-        >
-          <Pause className="size-5" />
-        </button>
-      )}
+      {phase === "play" && <CornerControls />}
     </div>
   );
 }
@@ -80,24 +72,7 @@ function TitleScreen({ ready }: { ready: boolean }) {
         <p className="mx-auto mt-5 max-w-sm text-sm leading-relaxed text-muted">
           Real-life leads. Pull the black car up to the rope, walk it, then finish the alley like the picture.
         </p>
-        <div className="mt-6 flex items-center justify-center gap-3">
-          {(
-            [
-              ["/avatars/hero-face.png", "Lead"],
-              ["/avatars/rapper-face.png", "The Voice"],
-              ["/avatars/beard-face.png", "The Quiet"],
-            ] as const
-          ).map(([src, label]) => (
-            <figure key={label} className="flex flex-col items-center gap-1.5">
-              <img
-                src={src}
-                alt=""
-                className="size-12 rounded-full border border-border object-cover shadow-hud sm:size-14"
-              />
-              <figcaption className="text-[10px] tracking-[0.18em] text-faint uppercase">{label}</figcaption>
-            </figure>
-          ))}
-        </div>
+        <LeadPick />
         <button
           type="button"
           disabled={!ready || !start}
@@ -106,8 +81,11 @@ function TitleScreen({ ready }: { ready: boolean }) {
         >
           {ready ? "Enter the night" : "Loading"}
         </button>
-        <p className="mt-6 text-[11px] leading-relaxed text-faint">
+        <p className="mt-6 hidden text-[11px] leading-relaxed text-faint md:block">
           WASD drive or walk · F doors · Space own the room / hold the alley · Esc pause
+        </p>
+        <p className="mt-6 text-[11px] leading-relaxed text-faint md:hidden">
+          Stick to drive · Door to step out · Hold to own the room and the alley
         </p>
       </div>
     </div>
@@ -127,11 +105,8 @@ function Hud() {
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
-      <img
-        src="/avatars/hero-face.png"
-        alt=""
-        className="absolute top-[max(2.75rem,env(safe-area-inset-top))] left-[max(0.75rem,env(safe-area-inset-left))] size-11 rounded-full border border-border object-cover shadow-hud sm:size-12"
-      />
+      <LeadMark />
+      <Beats />
       <div className="absolute top-[max(2.75rem,env(safe-area-inset-top))] left-1/2 w-[min(92vw,28rem)] -translate-x-1/2 text-center">
         <p className="text-[10px] font-medium tracking-[0.32em] text-muted uppercase">
           Chapter 0{chapter + 1} · {chapterTitle}
@@ -318,9 +293,16 @@ function MenuBtn({
   );
 }
 
+function chapterLabel(chapter: number) {
+  if (chapter >= 3) return "Alley";
+  if (chapter === 2) return "Room";
+  return "Hold";
+}
+
 function TouchPad() {
   const bindings = useGameStore((s) => s.bindings);
   const inVehicle = useGameStore((s) => s.inVehicle);
+  const chapter = useGameStore((s) => s.chapter);
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -340,6 +322,7 @@ function TouchPad() {
       <div className="pointer-events-auto absolute right-[max(0.75rem,env(safe-area-inset-right))] bottom-[max(1.25rem,env(safe-area-inset-bottom))] flex flex-col gap-3">
         <RoundBtn label={inVehicle ? "Exit" : "Enter"} onClick={() => bindings?.tapEnter()} />
         <HoldBtn
+          label={chapterLabel(chapter)}
           onDown={() => bindings?.setActionHold(true)}
           onUp={() => bindings?.setActionHold(false)}
         />
@@ -361,7 +344,7 @@ function RoundBtn({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
-function HoldBtn({ onDown, onUp }: { onDown: () => void; onUp: () => void }) {
+function HoldBtn({ label, onDown, onUp }: { label: string; onDown: () => void; onUp: () => void }) {
   return (
     <button
       type="button"
@@ -374,7 +357,7 @@ function HoldBtn({ onDown, onUp }: { onDown: () => void; onUp: () => void }) {
       onPointerCancel={onUp}
       className="h-14 min-w-14 rounded-full border border-border bg-ink/70 px-3 text-xs font-semibold uppercase tracking-wide text-foam"
     >
-      Hold
+      {label}
     </button>
   );
 }
@@ -422,6 +405,82 @@ function Stick({ onChange }: { onChange: (x: number, y: number) => void }) {
       }}
     >
       <div className="absolute top-1/2 left-1/2 size-12 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foam/25" />
+    </div>
+  );
+}
+
+function LeadPick() {
+  const lead = useGameStore((s) => s.lead);
+  const setLead = useGameStore((s) => s.setLead);
+  return (
+    <div className="mt-6 flex items-start justify-center gap-3">
+      {LEADS.map((row) => {
+        const on = row.id === lead;
+        return (
+          <button
+            key={row.id}
+            type="button"
+            onClick={() => setLead(row.id as LeadId)}
+            className={"flex w-24 flex-col items-center gap-1.5 rounded-md border px-2 py-2 " + (on ? "border-foam bg-ink/70" : "border-border bg-ink/40")}
+            aria-pressed={on}
+          >
+            <img src={row.face} alt="" className="size-12 rounded-full border border-border object-cover sm:size-14" />
+            <span className="text-[10px] tracking-[0.16em] text-foam uppercase">{row.label}</span>
+            <span className="text-[10px] leading-snug text-faint">{row.line}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function LeadMark() {
+  const lead = useGameStore((s) => s.lead);
+  const row = LEADS.find((item) => item.id === lead) ?? LEADS[0];
+  return (
+    <img
+      src={row.face}
+      alt=""
+      className="absolute top-[max(2.75rem,env(safe-area-inset-top))] left-[max(0.75rem,env(safe-area-inset-left))] size-11 rounded-full border border-border object-cover shadow-hud sm:size-12"
+    />
+  );
+}
+
+function Beats() {
+  const chapter = useGameStore((s) => s.chapter);
+  return (
+    <ol className="absolute top-[max(6.4rem,calc(env(safe-area-inset-top)+4.2rem))] left-[max(0.75rem,env(safe-area-inset-left))] flex max-w-40 flex-col gap-1">
+      {BEATS.map((beat, i) => (
+        <li key={beat} className={"text-[10px] tracking-wide " + (i < chapter ? "text-foam" : i === chapter ? "text-foam" : "text-faint")}>
+          {i < chapter ? "· " : i === chapter ? "→ " : "  "}
+          {beat}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function CornerControls() {
+  const bindings = useGameStore((s) => s.bindings);
+  const muted = useGameStore((s) => s.muted);
+  return (
+    <div className="absolute top-[max(2.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-30 flex gap-2">
+      <button
+        type="button"
+        className="flex size-11 items-center justify-center rounded-md border border-border bg-ink/70 text-foam"
+        onClick={() => bindings?.toggleMute()}
+        aria-label={muted ? "Unmute" : "Mute"}
+      >
+        {muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
+      </button>
+      <button
+        type="button"
+        className="flex size-11 items-center justify-center rounded-md border border-border bg-ink/70 text-foam"
+        onClick={() => bindings?.pause()}
+        aria-label="Pause"
+      >
+        <Pause className="size-5" />
+      </button>
     </div>
   );
 }
