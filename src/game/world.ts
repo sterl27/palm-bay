@@ -254,9 +254,23 @@ export function buildWorld(scene: THREE.Scene): NightWorld {
   }
   backDoor.add(hinge);
   group.add(backDoor);
-  const exitLight = new THREE.PointLight(0xff3344, 8, 9, 2);
-  exitLight.position.set(26.4, 2.8, 2);
+  const exitLight = new THREE.PointLight(0xff3344, 14, 14, 2);
+  exitLight.position.set(24.6, 2.8, 2);
   group.add(exitLight);
+  const runner = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.2, 1.4),
+    new THREE.MeshStandardMaterial({ color: 0x6a1420, roughness: 0.65, emissive: 0x3a0a12, emissiveIntensity: 0.35 }),
+  );
+  runner.rotation.x = -Math.PI / 2;
+  runner.position.set(22.4, 0.06, 2);
+  group.add(runner);
+  const wallSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.4, 0.36),
+    new THREE.MeshStandardMaterial({ map: exitTex, emissive: 0xff2233, emissiveIntensity: 1.4, side: THREE.DoubleSide }),
+  );
+  wallSign.position.set(25.55, 3.55, 2);
+  wallSign.rotation.y = -Math.PI / 2;
+  group.add(wallSign);
 
   const carpetMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(8.4, 2.4),

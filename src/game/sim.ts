@@ -199,14 +199,15 @@ export function blipOf(sim: Sim) {
   if (sim.ended) return null;
   if (sim.chapter === 0) return ZONES.curb;
   if (sim.chapter === 1) return ZONES.door;
-  if (sim.chapter === 2) return ZONES.vip;
+  if (sim.chapter === 2) return sim.roomOwned ? ZONES.back : ZONES.vip;
   return ZONES.standoff;
 }
 
 export function objectiveOf(sim: Sim) {
   if (sim.failed) return "Cut. Three strikes.";
   if (sim.ended) return sim.night === 2 ? "Both nights. The alley remembers." : "The night is yours.";
-  if (sim.chapter === 2 && !sim.roomOwned) return "Take the floor before the alley.";
+  if (sim.chapter === 2 && !sim.roomOwned) return "Take the floor. The back door stays shut.";
+  if (sim.chapter === 2 && sim.roomOwned) return "Back door. After hours.";
   return CHAPTERS[sim.chapter]?.line ?? "";
 }
 
