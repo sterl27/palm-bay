@@ -3,7 +3,7 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "sterleone";
+const APP_NAME = "Don Sterleone";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -12,9 +12,9 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" },
       { title: APP_NAME },
       { name: "theme-color", content: "#08070A" },
-      { name: "description", content: "Cinematic 3D Hollywood night. Live avatars, black Tesla, red carpet, sterleone, the alley." },
+      { name: "description", content: "Cinematic 3D Hollywood night. Live avatars, black Tesla, red carpet, Don Sterleone, the alley." },
       { property: "og:title", content: APP_NAME },
-      { property: "og:description", content: "Cinematic 3D Hollywood night. Live avatars, black Tesla, red carpet, sterleone, the alley." },
+      { property: "og:description", content: "Cinematic 3D Hollywood night. Live avatars, black Tesla, red carpet, Don Sterleone, the alley." },
       { property: "og:type", content: "website" },
       { property: "og:image", content: "https://palm-bay-eight.vercel.app/og.jpg" },
       { name: "twitter:card", content: "summary_large_image" },

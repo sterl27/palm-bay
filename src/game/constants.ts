@@ -64,7 +64,7 @@ export const CHAPTERS = [
   {
     id: "arrival",
     title: "Arrival",
-    line: "Pull up to sterleone.",
+    line: "Pull up to Don Sterleone.",
   },
   {
     id: "carpet",

@@ -230,11 +230,11 @@ export function makeMoltSign() {
     ctx.shadowColor = "#ff4d7a";
     ctx.shadowBlur = 28;
     ctx.fillStyle = "#ff6b8a";
-    ctx.font = "700 52px Impact, Arial Black, sans-serif";
-    ctx.fillText("sterleone", 256, 82);
+    ctx.font = "700 40px Impact, Arial Black, sans-serif";
+    ctx.fillText("DON STERLEONE", 256, 82);
     ctx.shadowBlur = 6;
     ctx.fillStyle = "#ffe4ec";
-    ctx.fillText("sterleone", 256, 82);
+    ctx.fillText("DON STERLEONE", 256, 82);
   });
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.repeat.set(1, 1);
