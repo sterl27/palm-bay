@@ -65,8 +65,8 @@ function TitleScreen({ ready }: { ready: boolean }) {
       <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-ink via-ink/55 to-ink/25" />
       <div className="relative w-full max-w-lg text-center">
         <p className="mb-3 text-xs font-medium tracking-[0.42em] text-muted uppercase">Cinematic avatars · one night</p>
-        <h1 className="font-display text-[clamp(2.8rem,12vw,5.4rem)] leading-[0.9] font-semibold tracking-tight text-foam">
-          sterleone
+        <h1 className="mx-auto w-full max-w-md">
+          <img src="/brand/sterleone-wordmark.jpg" alt="sterleone" className="w-full object-contain" />
         </h1>
         <p className="mx-auto mt-5 max-w-sm text-sm leading-relaxed text-muted">
           Real-life leads. Pull the black car up to the rope, walk it, then finish the alley like the picture.
