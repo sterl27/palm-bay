@@ -215,35 +215,47 @@ export function buildWorld(scene: THREE.Scene): NightWorld {
 
   const backDoor = new THREE.Group();
   backDoor.name = "backDoor";
-  backDoor.position.set(25.78, 0, 0.42);
-  const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(0.16, 3.15, 2.55),
-    new THREE.MeshStandardMaterial({ color: 0x1a1614, roughness: 0.45, metalness: 0.4 }),
-  );
-  frame.position.set(0, 1.55, 1.58);
-  backDoor.add(frame);
+  backDoor.position.set(25.78, 0, 2);
+  const jamb = new THREE.MeshStandardMaterial({ color: 0x14110f, roughness: 0.4, metalness: 0.45 });
+  const leftJ = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.2, 0.16), jamb);
+  leftJ.position.set(0, 1.6, -1.15);
+  backDoor.add(leftJ);
+  const rightJ = leftJ.clone();
+  rightJ.position.z = 1.15;
+  backDoor.add(rightJ);
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 2.46), jamb);
+  lintel.position.set(0, 3.12, 0);
+  backDoor.add(lintel);
+  const hinge = new THREE.Group();
+  hinge.name = "backSlab";
+  hinge.position.set(0.02, 0, -1.02);
   const slab = new THREE.Mesh(
-    new THREE.BoxGeometry(0.08, 2.7, 1.35),
-    new THREE.MeshStandardMaterial({ color: 0x3a2420, roughness: 0.4, metalness: 0.55 }),
+    new THREE.BoxGeometry(0.07, 2.75, 1.9),
+    new THREE.MeshStandardMaterial({ color: 0x4a2c28, roughness: 0.38, metalness: 0.5 }),
   );
-  slab.name = "backSlab";
-  slab.position.set(0.02, 1.4, 0.7);
-  backDoor.add(slab);
+  slab.position.set(0, 1.42, 0.95);
+  hinge.add(slab);
   const pushBar = new THREE.Mesh(
-    new THREE.BoxGeometry(0.04, 0.06, 0.7),
-    new THREE.MeshStandardMaterial({ color: 0xc8cdd4, roughness: 0.25, metalness: 0.85 }),
+    new THREE.BoxGeometry(0.05, 0.07, 1.15),
+    new THREE.MeshStandardMaterial({ color: 0xd5dbe3, roughness: 0.22, metalness: 0.88 }),
   );
-  pushBar.position.set(0.08, 1.35, 0.85);
-  backDoor.add(pushBar);
-  const exit = new THREE.Mesh(
-    new THREE.BoxGeometry(0.06, 0.18, 0.7),
-    new THREE.MeshStandardMaterial({ color: 0xff2a3a, emissive: 0xff1a28, emissiveIntensity: 1.4 }),
-  );
-  exit.position.set(0.1, 2.95, 1.58);
-  backDoor.add(exit);
+  pushBar.position.set(0.06, 1.25, 0.95);
+  hinge.add(pushBar);
+  const exitTex = makeNeonWord("EXIT", "#ff3344");
+  disposables.push(exitTex);
+  for (const side of [-1, 1]) {
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.7, 0.22),
+      new THREE.MeshStandardMaterial({ map: exitTex, emissive: 0xff2233, emissiveIntensity: 1.1, side: THREE.DoubleSide }),
+    );
+    sign.position.set(side * 0.05, 2.45, 0.95);
+    sign.rotation.y = side > 0 ? 0 : Math.PI;
+    hinge.add(sign);
+  }
+  backDoor.add(hinge);
   group.add(backDoor);
-  const exitLight = new THREE.PointLight(0xff3344, 4, 6, 2);
-  exitLight.position.set(26.3, 2.7, 2);
+  const exitLight = new THREE.PointLight(0xff3344, 8, 9, 2);
+  exitLight.position.set(26.4, 2.8, 2);
   group.add(exitLight);
 
   const carpetMesh = new THREE.Mesh(

@@ -389,9 +389,9 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
       }
       if (near(p.x, p.z, ZONES.back)) {
         if (!sim.roomOwned) {
-          sim.prompt = "The floor first.";
+          sim.prompt = "Back door is locked. Take the floor.";
         } else {
-          sim.prompt = "F · After hours";
+          sim.prompt = "F · Back door";
           if (actions.enter) {
             p.x = 27.2;
             p.z = 2;
