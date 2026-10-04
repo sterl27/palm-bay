@@ -7,7 +7,7 @@ import { CHAPTERS, FIXED, clamp, inAlley, inClub, lerp } from "./constants";
 import { createInput, type Actions } from "./input";
 import { createAudio } from "./audio";
 import { animatePerson, makePerson, makeTesla } from "./meshes";
-import { applyLead, blipOf, createSim, objectiveOf, resetSim, stepSim, type Sim } from "./sim";
+import { applyLead, beginNight, blipOf, createSim, objectiveOf, resetSim, stepSim, type Sim } from "./sim";
 import { useGameStore } from "./store";
 import { buildWorld } from "./world";
 
@@ -165,7 +165,7 @@ export function createGame(canvas: HTMLCanvasElement) {
   }
   setupComposer();
 
-  let phase: "title" | "play" | "pause" | "win" = "title";
+  let phase: "title" | "play" | "pause" | "win" | "fail" = "title";
   let acc = 0;
   let last = performance.now();
   let fly = 0;
@@ -281,6 +281,15 @@ export function createGame(canvas: HTMLCanvasElement) {
     tapHandbrake: () => input.tapHandbrake(),
     setActionHold: (v) => input.setActionHold(v),
     skipReel,
+    secondNight: () => {
+      beginNight(sim, 2);
+      alleyPlayed = false;
+      reelOn = false;
+      slateT = 2.2;
+      phase = "play";
+      useGameStore.getState().patch({ phase: "play", reel: null, slate: "Second night", caption: "" });
+      start();
+    },
   });
   useGameStore.getState().patch({ phase: "title" });
 
@@ -301,12 +310,15 @@ export function createGame(canvas: HTMLCanvasElement) {
     const blip = blipOf(sim);
     const ch = CHAPTERS[sim.chapter] ?? CHAPTERS[0];
     useGameStore.getState().patch({
-      phase: sim.ended ? "win" : phase,
+      phase: sim.failed ? "fail" : sim.ended ? "win" : phase,
       chapter: sim.chapter,
       chapterTitle: ch.title,
       objective: objectiveOf(sim),
       prompt: sim.prompt,
       toast: sim.toast,
+      score: sim.score,
+      strikes: sim.strikes,
+      night: sim.night,
       speed: Math.abs(sim.player.speed),
       inVehicle: sim.player.inCar,
       x: sim.player.x,
@@ -342,6 +354,9 @@ export function createGame(canvas: HTMLCanvasElement) {
       } else if (e.type === "win") {
         audio.win();
         phase = "win";
+      } else if (e.type === "fail") {
+        audio.door();
+        phase = "fail";
       }
     }
   }

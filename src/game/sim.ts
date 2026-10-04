@@ -44,8 +44,14 @@ export type Sim = {
   toastT: number;
   trauma: number;
   ended: boolean;
+  failed: boolean;
   time: number;
   lead: LeadId;
+  score: number;
+  strikes: number;
+  night: number;
+  parkedClean: boolean;
+  roomOwned: boolean;
 };
 
 export function createSim(): Sim {
@@ -169,8 +175,14 @@ export function createSim(): Sim {
     toastT: 0,
     trauma: 0,
     ended: false,
+    failed: false,
     time: 0,
     lead: "lead",
+    score: 0,
+    strikes: 0,
+    night: 1,
+    parkedClean: false,
+    roomOwned: false,
   };
 }
 
@@ -192,8 +204,20 @@ export function blipOf(sim: Sim) {
 }
 
 export function objectiveOf(sim: Sim) {
-  if (sim.ended) return "The night is yours.";
+  if (sim.failed) return "Cut. Three strikes.";
+  if (sim.ended) return sim.night === 2 ? "Both nights. The alley remembers." : "The night is yours.";
+  if (sim.chapter === 2 && !sim.roomOwned) return "Take the floor before the alley.";
   return CHAPTERS[sim.chapter]?.line ?? "";
+}
+
+export function beginNight(sim: Sim, night: number) {
+  const score = sim.score;
+  const lead = sim.lead;
+  const fresh = createSim();
+  Object.assign(sim, fresh);
+  sim.night = night;
+  sim.score = score;
+  sim.lead = lead;
 }
 
 export type SimEvent =
@@ -202,7 +226,22 @@ export type SimEvent =
   | { type: "door" }
   | { type: "chapter" }
   | { type: "win" }
+  | { type: "fail" }
   | { type: "step" };
+
+function bust(sim: Sim, events: SimEvent[], line: string) {
+  sim.strikes += 1;
+  sim.score = Math.max(0, sim.score - 12);
+  sim.toast = line;
+  sim.toastT = 1.8;
+  if (sim.strikes >= 3) {
+    sim.failed = true;
+    sim.ended = true;
+    sim.toast = "Cut. Three strikes.";
+    sim.toastT = 3;
+    events.push({ type: "fail" });
+  }
+}
 
 export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[]): SimEvent[] {
   const events: SimEvent[] = [];
@@ -213,7 +252,7 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     if (sim.toastT <= 0) sim.toast = "";
   }
 
-  if (sim.ended) {
+  if (sim.ended || sim.failed) {
     sim.player.speed = lerp(sim.player.speed, 0, 1 - Math.exp(-6 * dt));
     sim.prompt = "";
     return events;
@@ -242,8 +281,10 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     let nz = p.z + fz * p.speed * dt;
     const hit = resolveCircle(nx, nz, 1.35, colliders);
     if (Math.abs(hit.x - nx) > 0.01 || Math.abs(hit.z - nz) > 0.01) {
+      const hard = Math.abs(p.speed) > 6;
       p.speed *= 0.35;
-      sim.trauma = Math.min(1, sim.trauma + 0.18);
+      sim.trauma = Math.min(1, sim.trauma + (hard ? 0.45 : 0.12));
+      if (hard) bust(sim, events, sim.lead === "lead" ? "The car can take it. Once." : "Too hot. Ease the nose.");
     }
     p.x = hit.x;
     p.z = hit.z;
@@ -285,7 +326,15 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
       events.push({ type: "exit" });
       if (sim.chapter === 0 && near(p.carX, p.carZ, ZONES.curb)) {
         sim.chapter = 1;
-        sim.toast = "Walk the rope.";
+        const clean = Math.abs(p.speed) < 2.2;
+        if (clean && !sim.parkedClean) {
+          sim.parkedClean = true;
+          const bonus = sim.lead === "lead" ? 30 : 18;
+          sim.score += bonus;
+          sim.toast = `Clean rope. +${bonus}`;
+        } else {
+          sim.toast = "Walk the rope.";
+        }
         sim.toastT = 2.4;
         events.push({ type: "chapter" });
       }
@@ -319,40 +368,63 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     }
 
     if (sim.chapter === 2) {
-      if (inClub(p.x, p.z) && !near(p.x, p.z, ZONES.back)) {
-        sim.prompt = "Space · Own the room";
-      }
-      if (near(p.x, p.z, ZONES.vip) && sim.toastT <= 0) {
-        sim.toast = "After hours waits out back.";
-        sim.toastT = 3;
+      if (!sim.roomOwned && near(p.x, p.z, ZONES.vip)) {
+        sim.prompt = "Hold Space · Take the floor";
+        if (actions.handbrake || actions.fire) {
+          const rate = sim.lead === "voice" ? 1.7 : 1;
+          sim.hold = Math.min(1, sim.hold + (dt / 1.5) * rate);
+          if (sim.hold >= 1) {
+            sim.roomOwned = true;
+            const bonus = sim.lead === "voice" ? 40 : 22;
+            sim.score += bonus;
+            sim.toast = `The floor answers. +${bonus}`;
+            sim.toastT = 2.2;
+            sim.hold = 0;
+          }
+        } else {
+          sim.hold = Math.max(0, sim.hold - dt * 0.35);
+        }
+      } else if (inClub(p.x, p.z) && !sim.roomOwned) {
+        sim.prompt = "Find the floor. Hold it.";
       }
       if (near(p.x, p.z, ZONES.back)) {
-        sim.prompt = "F · After hours";
-        if (actions.enter) {
-          p.x = 27.2;
-          p.z = 2;
-          sim.chapter = 3;
-          sim.toast = sim.lead === "quiet" ? "The alley is yours." : "Face him.";
-          sim.toastT = 2.4;
-          events.push({ type: "door" }, { type: "chapter" });
+        if (!sim.roomOwned) {
+          sim.prompt = "The floor first.";
+        } else {
+          sim.prompt = "F · After hours";
+          if (actions.enter) {
+            p.x = 27.2;
+            p.z = 2;
+            sim.chapter = 3;
+            sim.hold = 0;
+            sim.toast = sim.night === 2 ? "Second night. He does not blink." : sim.lead === "quiet" ? "The alley is yours." : "Face him.";
+            sim.toastT = 2.4;
+            events.push({ type: "door" }, { type: "chapter" });
+          }
         }
       }
     }
 
     if (sim.chapter === 3 && near(p.x, p.z, ZONES.standoff)) {
-      sim.prompt = "Hold Space — stand your ground";
+      sim.prompt = sim.night === 2 ? "Hold Space — he does not blink" : "Hold Space — stand your ground";
       if (actions.handbrake || actions.fire) {
-        const holdRate = sim.lead === "quiet" ? 1.45 : sim.lead === "voice" ? 1.15 : 1;
-        sim.hold = Math.min(1, sim.hold + (dt / 1.7) * holdRate);
+        const holdRate = sim.lead === "quiet" ? 1.55 : sim.lead === "voice" ? 1.05 : 1;
+        const need = sim.night === 2 ? 2.6 : 1.7;
+        sim.hold = Math.min(1, sim.hold + (dt / need) * holdRate);
         if (sim.hold >= 1) {
+          sim.score += sim.night === 2 ? 50 : 30;
           sim.ended = true;
           sim.toast = "";
           events.push({ type: "win" });
         }
+      } else if (sim.night === 2) {
+        const before = sim.hold;
+        sim.hold = Math.max(0, sim.hold - dt * 0.7);
+        if (before > 0.15 && sim.hold <= 0) bust(sim, events, "You blinked.");
       } else {
         sim.hold = Math.max(0, sim.hold - dt * 0.45);
       }
-    } else if (sim.chapter !== 3) {
+    } else if (sim.chapter !== 2 || sim.roomOwned) {
       sim.hold = 0;
     }
   }

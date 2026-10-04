@@ -43,6 +43,7 @@ export function GameShell() {
       {phase === "play" && <Reel />}
       {phase === "pause" && <PauseMenu />}
       {phase === "win" && <WinScreen />}
+      {phase === "fail" && <FailScreen />}
       {phase === "play" && <TouchPad />}
       {phase === "play" && <CornerControls />}
     </div>
@@ -101,6 +102,9 @@ function Hud() {
   const inVehicle = useGameStore((s) => s.inVehicle);
   const hold = useGameStore((s) => s.hold);
   const caption = useGameStore((s) => s.caption);
+  const score = useGameStore((s) => s.score);
+  const strikes = useGameStore((s) => s.strikes);
+  const night = useGameStore((s) => s.night);
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
@@ -108,7 +112,7 @@ function Hud() {
       <Beats />
       <div className="absolute top-[max(2.75rem,env(safe-area-inset-top))] left-1/2 w-[min(92vw,28rem)] -translate-x-1/2 text-center">
         <p className="text-[10px] font-medium tracking-[0.32em] text-muted uppercase">
-          Chapter 0{chapter + 1} · {chapterTitle}
+          Night {night} · Chapter 0{chapter + 1} · {chapterTitle}
         </p>
         <p className="font-display mt-1 text-xl text-foam sm:text-2xl">{objective}</p>
         {caption ? (
@@ -118,11 +122,9 @@ function Hud() {
 
       <div className="absolute top-28 left-[max(0.75rem,env(safe-area-inset-left))] flex flex-col items-start gap-2 md:top-auto md:bottom-[max(2.75rem,env(safe-area-inset-bottom))]">
         <Minimap />
-        {inVehicle ? (
-          <div className="rounded-md border border-border bg-ink/60 px-3 py-1.5 text-[11px] text-muted">
-            Night · <span className="tabular-nums text-foam">{Math.round(speed * 2.2)}</span>
-          </div>
-        ) : null}
+        <div className="rounded-md border border-border bg-ink/60 px-3 py-1.5 text-[11px] text-muted">
+          {score} heat · {strikes}/3 cuts{inVehicle ? <> · <span className="tabular-nums text-foam">{Math.round(speed * 2.2)}</span></> : null}
+        </div>
       </div>
 
       {hold > 0 && hold < 1 ? (
@@ -252,18 +254,32 @@ function PauseMenu() {
 
 function WinScreen() {
   const bindings = useGameStore((s) => s.bindings);
+  const score = useGameStore((s) => s.score);
+  const night = useGameStore((s) => s.night);
   return (
     <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-ink/55 px-6">
-      <p className="text-[10px] font-medium tracking-[0.4em] text-muted uppercase">The end</p>
-      <h2 className="font-display mt-2 text-[clamp(3rem,12vw,6rem)] leading-none text-foam">You owned the night</h2>
-      <p className="mt-4 max-w-sm text-center text-sm text-muted">The carpet. The floor. The alley. Cut.</p>
-      <button
-        type="button"
-        onClick={() => bindings?.restart()}
-        className="mt-8 inline-flex h-12 min-w-40 items-center justify-center rounded-md bg-foam px-8 text-sm font-semibold text-ink"
-      >
-        Play again
-      </button>
+      <p className="text-[10px] font-medium tracking-[0.4em] text-muted uppercase">{night === 2 ? "Both nights" : "Night one"}</p>
+      <h2 className="font-display mt-2 text-center text-[clamp(3rem,12vw,6rem)] leading-none text-foam">{night === 2 ? "The alley remembers" : "You owned the night"}</h2>
+      <p className="mt-4 max-w-sm text-center text-sm text-muted">{score} heat. {night === 2 ? "He blinked second." : "The floor was taken. The alley is next, and he does not blink."}</p>
+      <div className="mt-8 flex flex-col gap-2">
+        {night < 2 ? (
+          <button type="button" onClick={() => bindings?.secondNight()} className="inline-flex h-12 min-w-40 items-center justify-center rounded-md bg-foam px-8 text-sm font-semibold text-ink">Second night</button>
+        ) : null}
+        <button type="button" onClick={() => bindings?.restart()} className="inline-flex h-12 min-w-40 items-center justify-center rounded-md border border-border px-8 text-sm font-semibold text-foam">Run it clean</button>
+      </div>
+    </div>
+  );
+}
+
+function FailScreen() {
+  const bindings = useGameStore((s) => s.bindings);
+  const score = useGameStore((s) => s.score);
+  return (
+    <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-ink/70 px-6">
+      <p className="text-[10px] font-medium tracking-[0.4em] text-muted uppercase">Cut</p>
+      <h2 className="font-display mt-2 text-[clamp(3rem,12vw,6rem)] leading-none text-foam">Three strikes</h2>
+      <p className="mt-4 max-w-sm text-center text-sm text-muted">{score} heat left on the curb. The rope does not wait.</p>
+      <button type="button" onClick={() => bindings?.restart()} className="mt-8 inline-flex h-12 min-w-40 items-center justify-center rounded-md bg-foam px-8 text-sm font-semibold text-ink">Run it back</button>
     </div>
   );
 }

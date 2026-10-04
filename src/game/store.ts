@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { LeadId } from "./constants";
 
-export type Phase = "loading" | "title" | "play" | "pause" | "win";
+export type Phase = "loading" | "title" | "play" | "pause" | "win" | "fail";
 
 export type HudSnap = {
   phase: Phase;
@@ -24,6 +24,9 @@ export type HudSnap = {
   caption: string;
   slate: string;
   lead: LeadId;
+  score: number;
+  strikes: number;
+  night: number;
 };
 
 const empty: HudSnap = {
@@ -47,6 +50,9 @@ const empty: HudSnap = {
   caption: "",
   slate: "",
   lead: "lead",
+  score: 0,
+  strikes: 0,
+  night: 1,
 };
 
 type Bindings = {
@@ -60,6 +66,7 @@ type Bindings = {
   tapHandbrake: () => void;
   setActionHold: (v: boolean) => void;
   skipReel: () => void;
+  secondNight: () => void;
 };
 
 type Store = HudSnap & {
