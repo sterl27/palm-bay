@@ -213,6 +213,39 @@ export function buildWorld(scene: THREE.Scene): NightWorld {
     group.add(pane);
   }
 
+  const backDoor = new THREE.Group();
+  backDoor.name = "backDoor";
+  backDoor.position.set(25.78, 0, 0.42);
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(0.16, 3.15, 2.55),
+    new THREE.MeshStandardMaterial({ color: 0x1a1614, roughness: 0.45, metalness: 0.4 }),
+  );
+  frame.position.set(0, 1.55, 1.58);
+  backDoor.add(frame);
+  const slab = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 2.7, 1.35),
+    new THREE.MeshStandardMaterial({ color: 0x3a2420, roughness: 0.4, metalness: 0.55 }),
+  );
+  slab.name = "backSlab";
+  slab.position.set(0.02, 1.4, 0.7);
+  backDoor.add(slab);
+  const pushBar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.04, 0.06, 0.7),
+    new THREE.MeshStandardMaterial({ color: 0xc8cdd4, roughness: 0.25, metalness: 0.85 }),
+  );
+  pushBar.position.set(0.08, 1.35, 0.85);
+  backDoor.add(pushBar);
+  const exit = new THREE.Mesh(
+    new THREE.BoxGeometry(0.06, 0.18, 0.7),
+    new THREE.MeshStandardMaterial({ color: 0xff2a3a, emissive: 0xff1a28, emissiveIntensity: 1.4 }),
+  );
+  exit.position.set(0.1, 2.95, 1.58);
+  backDoor.add(exit);
+  group.add(backDoor);
+  const exitLight = new THREE.PointLight(0xff3344, 4, 6, 2);
+  exitLight.position.set(26.3, 2.7, 2);
+  group.add(exitLight);
+
   const carpetMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(8.4, 2.4),
     new THREE.MeshStandardMaterial({ map: carpet, roughness: 0.7 }),

@@ -362,6 +362,11 @@ export function createGame(canvas: HTMLCanvasElement) {
   }
 
   function syncMeshes(t: number, dt: number, actions: Actions) {
+    const slab = scene.getObjectByName("backSlab");
+    if (slab) {
+      const open = sim.chapter >= 3 || sim.roomOwned ? 1.15 : 0;
+      slab.rotation.y += (open - slab.rotation.y) * Math.min(1, dt * 4);
+    }
     tesla.position.set(sim.player.carX, 0, sim.player.carZ);
     tesla.rotation.y = sim.player.carYaw;
     tesla.traverse((o) => {
