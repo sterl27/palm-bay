@@ -54,6 +54,8 @@ export type Sim = {
   roomOwned: boolean;
   tookEnvelope: boolean;
   roomClock: number;
+  heardAlley: boolean;
+  talked: number[];
 };
 
 export function createSim(): Sim {
@@ -187,6 +189,8 @@ export function createSim(): Sim {
     roomOwned: false,
     tookEnvelope: false,
     roomClock: 0,
+    heardAlley: false,
+    talked: [],
   };
 }
 
@@ -434,7 +438,7 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     if (sim.chapter === 3 && near(p.x, p.z, ZONES.standoff)) {
       sim.prompt = sim.night === 2 ? "Hold Space — he does not blink" : "Hold Space — stand your ground";
       if (actions.handbrake || actions.fire) {
-        const holdRate = sim.lead === "quiet" ? 1.55 : sim.lead === "voice" ? 1.05 : 1;
+        const holdRate = (sim.lead === "quiet" ? 1.55 : sim.lead === "voice" ? 1.05 : 1) * (sim.heardAlley ? 1.2 : 1);
         const need = sim.night === 2 ? 2.6 : 1.7;
         sim.hold = Math.min(1, sim.hold + (dt / need) * holdRate);
         if (sim.hold >= 1) {
@@ -464,13 +468,32 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
       who = n;
     }
   }
-  if (who && nearest < 2.15 && !sim.prompt) {
-    const line = who.kind === "rapper" ? "The alley does not blink." : who.kind === "beard" ? "Envelope first. Then the door." : who.kind === "street" ? "Black car. Don't scratch the rope." : "She doesn't know your name yet.";
-    sim.prompt = "F · Talk";
-    if (actions.enter) {
+  if (who && nearest < 2.15 && !sim.prompt && !p.inCar) {
+    const name = who.kind === "rapper" ? "Him" : who.kind === "beard" ? "The beard" : who.kind === "street" ? "The curb" : "The rope";
+    sim.prompt = `F · ${name}`;
+    if (actions.enter && !sim.talked.includes(who.seed)) {
+      sim.talked.push(who.seed);
+      const line =
+        who.kind === "rapper"
+          ? sim.lead === "quiet"
+            ? "You already know. Don't blink."
+            : "Hold it. If you blink, the night takes a cut."
+          : who.kind === "beard"
+            ? sim.tookEnvelope
+              ? "Pocket's heavy. Floor next, then my door."
+              : "Envelope at the bar. Door stays shut without it."
+            : who.kind === "street"
+              ? "Park clean. A hard nose is a cut."
+              : sim.lead === "voice"
+                ? "They'll open if you take the floor."
+                : "Name's not on the list. Walk it anyway.";
       sim.toast = line;
-      sim.toastT = 2.4;
-      sim.score += 4;
+      sim.toastT = 2.8;
+      sim.score += 6;
+      if (who.kind === "rapper") sim.heardAlley = true;
+    } else if (actions.enter) {
+      sim.toast = "They already said it.";
+      sim.toastT = 1.2;
     }
   }
 
