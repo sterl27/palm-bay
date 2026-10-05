@@ -455,6 +455,25 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     }
   }
 
+  let nearest = 99;
+  let who: Npc | null = null;
+  for (const n of sim.npcs) {
+    const d = Math.hypot(p.x - n.x, p.z - n.z);
+    if (d < nearest) {
+      nearest = d;
+      who = n;
+    }
+  }
+  if (who && nearest < 2.15 && !sim.prompt) {
+    const line = who.kind === "rapper" ? "The alley does not blink." : who.kind === "beard" ? "Envelope first. Then the door." : who.kind === "street" ? "Black car. Don't scratch the rope." : "She doesn't know your name yet.";
+    sim.prompt = "F · Talk";
+    if (actions.enter) {
+      sim.toast = line;
+      sim.toastT = 2.4;
+      sim.score += 4;
+    }
+  }
+
   if (sim.chapter === 0 && !p.inCar && near(p.x, p.z, ZONES.curb)) {
     sim.chapter = 1;
     events.push({ type: "chapter" });

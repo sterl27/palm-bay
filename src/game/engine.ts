@@ -37,8 +37,8 @@ export function createGame(canvas: HTMLCanvasElement) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.22;
-  renderer.shadowMap.enabled = false;
+  renderer.toneMappingExposure = 1.32;
+  renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
@@ -54,7 +54,7 @@ export function createGame(canvas: HTMLCanvasElement) {
   const moon = new THREE.DirectionalLight(0xa8c4e8, 0.72);
   moon.position.set(-28, 48, 18);
   moon.castShadow = renderer.shadowMap.enabled;
-  moon.shadow.mapSize.set(512, 512);
+  moon.shadow.mapSize.set(1024, 1024);
   moon.shadow.camera.near = 4;
   moon.shadow.camera.far = 120;
   moon.shadow.camera.left = -36;
@@ -63,6 +63,14 @@ export function createGame(canvas: HTMLCanvasElement) {
   moon.shadow.camera.bottom = -36;
   moon.shadow.bias = -0.00035;
   scene.add(moon);
+  const key = new THREE.SpotLight(0xffe2c4, 2.4, 18, 0.55, 0.45, 1);
+  key.position.set(2.4, 6.2, 4.8);
+  key.castShadow = true;
+  key.shadow.mapSize.set(512, 512);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0xff4d6a, 0.55);
+  rim.position.set(16, 8, -10);
+  scene.add(rim);
 
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(180, 20, 12),
