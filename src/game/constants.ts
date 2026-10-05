@@ -23,6 +23,7 @@ export const BOUNDS = {
 export const ZONES = {
   curb: { x: 4.2, z: 2, r: 8 },
   door: { x: 8.3, z: 2, r: 2.1 },
+  bar: { x: 14.2, z: 6.4, r: 2.2 },
   vip: { x: 19.5, z: 2, r: 3.2 },
   back: { x: 25.7, z: 2, r: 2.1 },
   standoff: { x: 36.2, z: 1.6, r: 3.4 },
@@ -56,6 +57,7 @@ export const BEATS = [
   "Pull the car to the rope",
   "Step out",
   "Walk the carpet",
+  "Pocket the envelope",
   "Own the floor",
   "Hold the alley",
 ] as const;
