@@ -110,6 +110,20 @@ function makeCard(spec: { url: string; aspect: number }, name: string) {
     alphaTest: 0.32,
     depthWrite: true,
   });
+  // Auto-remove studio gray/black backgrounds from source JPEGs
+  cardMat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <map_fragment>",
+      `#include <map_fragment>
+      {
+        float _mx = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
+        float _mn = min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));
+        float _sat = _mx > 0.001 ? (_mx - _mn) / _mx : 0.0;
+        if (_sat < 0.09 && _mx > 0.11 && _mx < 0.52) diffuseColor.a = 0.0;
+        if (_mx < 0.04) diffuseColor.a = 0.0;
+      }`,
+    );
+  };
   // Register for runtime hot-swap
   const slotKey = spec.url.split("/").pop()!.replace(".png", "");
   const existing = liveMaterials.get(slotKey) ?? [];

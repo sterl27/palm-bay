@@ -88,6 +88,24 @@ export function createGame(canvas: HTMLCanvasElement) {
           vec3 horizon = vec3(0.38, 0.04, 0.28);
           vec3 col = mix(horizon, mid, smoothstep(-0.05, 0.25, h));
           col = mix(col, zenith, smoothstep(0.2, 0.85, h));
+
+          // Neon horizon glow line
+          float hGlow = exp(-pow(abs(h + 0.02) * 22.0, 1.1));
+          col += vec3(0.55, 0.05, 0.45) * hGlow;
+          col += vec3(0.10, 0.01, 0.09) * exp(-abs(h + 0.02) * 7.0);
+
+          // Stars in upper hemisphere
+          if (h > 0.04) {
+            vec3 dir = normalize(vP);
+            vec2 uv = vec2(atan(dir.z, dir.x) * 0.15915, asin(clamp(dir.y,-1.0,1.0)) * 0.63662);
+            vec2 cell = floor(uv * 110.0);
+            float rng  = fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
+            float rng2 = fract(sin(dot(cell, vec2(269.5, 183.3))) * 17358.3);
+            vec2 sub = fract(uv * 110.0) - 0.5;
+            float star = step(0.965, rng) * (1.0 - smoothstep(0.0, 0.12, length(sub)));
+            col += star * rng2 * 0.85 * smoothstep(0.04, 0.20, h);
+          }
+
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -135,11 +153,17 @@ export function createGame(canvas: HTMLCanvasElement) {
   glamourNpc.position.set(8.5, 0, 5.8);
   glamourNpc.rotation.y = -Math.PI * 0.55;
   scene.add(glamourNpc);
+  const glamourLight = new THREE.PointLight(0xff40a0, 3.5, 5, 2);
+  glamourLight.position.set(8.5, 2.2, 5.8);
+  scene.add(glamourLight);
 
   const androidNpc = makePerson("android");
   androidNpc.position.set(7.2, 0, -7.2);
   androidNpc.rotation.y = Math.PI * 0.15;
   scene.add(androidNpc);
+  const androidLight = new THREE.PointLight(0xffc060, 3.5, 5, 2);
+  androidLight.position.set(7.2, 2.2, -7.2);
+  scene.add(androidLight);
 
   const marker = new THREE.Mesh(
     new THREE.CylinderGeometry(0.45, 0.45, 0.08, 20),
