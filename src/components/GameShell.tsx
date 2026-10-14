@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pause, Volume2, VolumeX } from "lucide-react";
 import { Minimap } from "@/components/Minimap";
+import { RadioStation } from "@/components/RadioStation";
 import { BEATS, LEADS, type LeadId } from "@/game/constants";
 import { useGameStore } from "@/game/store";
 
@@ -46,6 +47,7 @@ export function GameShell() {
       {phase === "fail" && <FailScreen />}
       {phase === "play" && <TouchPad />}
       {phase === "play" && <CornerControls />}
+      {(phase === "play" || phase === "pause") && <RadioStation />}
     </div>
   );
 }
