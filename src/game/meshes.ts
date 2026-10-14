@@ -1,6 +1,34 @@
 import * as THREE from "three";
 import { loadLive } from "./textures";
 
+// Registry of live-card materials keyed by slot name (e.g. "hero-front", "rapper")
+export const liveMaterials = new Map<string, THREE.MeshStandardMaterial[]>();
+
+export function swapLiveSprite(slot: string, file: File): Promise<{ w: number; h: number }> {
+  const mats = liveMaterials.get(slot);
+  if (!mats?.length) return Promise.resolve({ w: 0, h: 0 });
+  const objectUrl = URL.createObjectURL(file);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const loader = new THREE.TextureLoader();
+      const tex = loader.load(objectUrl, () => URL.revokeObjectURL(objectUrl));
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      for (const mat of mats) {
+        mat.map?.dispose();
+        mat.map = tex;
+        mat.emissiveMap = tex;
+        mat.needsUpdate = true;
+      }
+      resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve({ w: 0, h: 0 }); };
+    img.src = objectUrl;
+  });
+}
+
 const mats = new Map<string, THREE.MeshStandardMaterial>();
 
 function mat(
@@ -69,20 +97,24 @@ function makeCard(spec: { url: string; aspect: number }, name: string) {
   }
   geo.computeVertexNormals();
   const tex = loadLive(spec.url);
-  const mesh = new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({
-      map: tex,
-      emissiveMap: tex,
-      emissive: new THREE.Color(0xffffff),
-      emissiveIntensity: 0.62,
-      roughness: 0.68,
-      metalness: 0,
-      transparent: true,
-      alphaTest: 0.32,
-      depthWrite: true,
-    }),
-  );
+  const cardMat = new THREE.MeshStandardMaterial({
+    map: tex,
+    emissiveMap: tex,
+    emissive: new THREE.Color(0xffffff),
+    emissiveIntensity: 0.62,
+    roughness: 0.68,
+    metalness: 0,
+    transparent: true,
+    alphaTest: 0.32,
+    depthWrite: true,
+  });
+  // Register for runtime hot-swap
+  const slotKey = spec.url.split("/").pop()!.replace(".png", "");
+  const existing = liveMaterials.get(slotKey) ?? [];
+  existing.push(cardMat);
+  liveMaterials.set(slotKey, existing);
+
+  const mesh = new THREE.Mesh(geo, cardMat);
   mesh.name = name;
   mesh.position.y = LIVE_H * 0.5;
   mesh.castShadow = false;

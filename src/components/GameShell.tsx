@@ -3,6 +3,7 @@ import { Pause, Settings as SettingsIcon, Volume2, VolumeX } from "lucide-react"
 import { Minimap } from "@/components/Minimap";
 import { RadioStation } from "@/components/RadioStation";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { AvatarSwapPanel } from "@/components/AvatarSwapPanel";
 import { BEATS, LEADS, type LeadId } from "@/game/constants";
 import { useGameStore } from "@/game/store";
 import { useSettings } from "@/game/settings";
@@ -11,6 +12,7 @@ export function GameShell() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [swapOpen, setSwapOpen] = useState(false);
   const phase = useGameStore((s) => s.phase);
   const { filmGrain, letterbox, hudOpacity, minimapEnabled, reduceMotion } = useSettings();
 
@@ -28,6 +30,14 @@ export function GameShell() {
       disposed = true;
       game?.dispose();
     };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "`" || e.key === "~") setSwapOpen((v) => !v);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   return (
@@ -62,6 +72,7 @@ export function GameShell() {
       </div>
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+      {swapOpen && <AvatarSwapPanel onClose={() => setSwapOpen(false)} />}
     </div>
   );
 }
