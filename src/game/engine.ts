@@ -4,6 +4,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { CHAPTERS, FIXED, clamp, inAlley, inClub, lerp } from "./constants";
+import type { Settings } from "./settings";
 import { createInput, type Actions } from "./input";
 import { createAudio } from "./audio";
 import { animatePerson, makePerson, makeTesla } from "./meshes";
@@ -173,6 +174,10 @@ export function createGame(canvas: HTMLCanvasElement) {
   }
   setupComposer();
 
+  let targetFrameMs = 0; // 0 = uncapped
+  let lastFrameT = 0;
+  let userFov = 52; // base FOV from settings, cinematic overrides are relative to this
+
   let phase: "title" | "play" | "pause" | "win" | "fail" = "title";
   let acc = 0;
   let last = performance.now();
@@ -298,8 +303,27 @@ export function createGame(canvas: HTMLCanvasElement) {
       useGameStore.getState().patch({ phase: "play", reel: null, slate: "Second night", caption: "" });
       start();
     },
+    applySettings: (s: Settings) => {
+      renderer.setPixelRatio(s.pixelRatio);
+      renderer.shadowMap.enabled = s.shadowsEnabled;
+      moon.castShadow = s.shadowsEnabled;
+      key.castShadow = s.shadowsEnabled;
+      bloom.strength = s.bloomEnabled ? 0.36 : 0;
+      userFov = s.fov;
+      targetFrameMs = s.frameCap > 0 ? 1000 / s.frameCap : 0;
+      const visible = Math.round(s.crowdDensity * npcMeshes.length);
+      npcMeshes.forEach((m, i) => { m.visible = i < visible; });
+      audio.setMasterVolume(s.masterVolume);
+      audio.setSfxVolume(s.sfxVolume);
+      audio.setMusicVolume(s.musicVolume);
+    },
   });
   useGameStore.getState().patch({ phase: "title" });
+
+  // Apply persisted settings on startup (lazy import avoids circular dep at module level)
+  void import("./settings").then(({ useSettings }) => {
+    useGameStore.getState().bindings?.applySettings(useSettings.getState());
+  });
 
   window.__controlsTest = {
     getYaw: () => sim.player.yaw,
@@ -575,7 +599,8 @@ export function createGame(canvas: HTMLCanvasElement) {
     lookZ = lerp(lookZ, sim.player.z + fz * lookAhead, k);
     camera.position.set(camX, camY, camZ);
     camera.lookAt(lookX, lookY, lookZ);
-    const fov = own || sim.ended ? 32 : alleyShot ? 38 : 50 + clamp(Math.abs(sim.player.speed) / 40, 0, 1) * 8;
+    const baseDrive = userFov - 2; // slight subtraction keeps the formula calibrated at default fov=52
+    const fov = own || sim.ended ? 32 : alleyShot ? 38 : baseDrive + clamp(Math.abs(sim.player.speed) / 40, 0, 1) * 8;
     if (Math.abs(camera.fov - fov) > 0.2) {
       camera.fov = lerp(camera.fov, fov, 0.08);
       camera.updateProjectionMatrix();
@@ -584,6 +609,8 @@ export function createGame(canvas: HTMLCanvasElement) {
 
   function tick(now: number) {
     if (!running) return;
+    if (targetFrameMs > 0 && now - lastFrameT < targetFrameMs) return;
+    lastFrameT = now;
     const raw = Math.min(0.1, (now - last) / 1000);
     last = now;
     acc += raw;

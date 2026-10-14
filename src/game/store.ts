@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { LeadId } from "./constants";
+import type { Settings } from "./settings";
 
 export type Phase = "loading" | "title" | "play" | "pause" | "win" | "fail";
 
@@ -67,6 +68,7 @@ type Bindings = {
   setActionHold: (v: boolean) => void;
   skipReel: () => void;
   secondNight: () => void;
+  applySettings: (s: Settings) => void;
 };
 
 type Store = HudSnap & {
