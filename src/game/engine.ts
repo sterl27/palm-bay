@@ -83,9 +83,9 @@ export function createGame(canvas: HTMLCanvasElement) {
         varying vec3 vP;
         void main(){
           float h = normalize(vP).y;
-          vec3 zenith = vec3(0.03, 0.04, 0.09);
-          vec3 mid = vec3(0.08, 0.06, 0.12);
-          vec3 horizon = vec3(0.22, 0.08, 0.12);
+          vec3 zenith = vec3(0.02, 0.02, 0.10);
+          vec3 mid = vec3(0.04, 0.03, 0.18);
+          vec3 horizon = vec3(0.38, 0.04, 0.28);
           vec3 col = mix(horizon, mid, smoothstep(-0.05, 0.25, h));
           col = mix(col, zenith, smoothstep(0.2, 0.85, h));
           gl_FragColor = vec4(col, 1.0);
@@ -130,6 +130,11 @@ export function createGame(canvas: HTMLCanvasElement) {
     scene.add(m);
     return m;
   });
+
+  const glamourNpc = makePerson("glamour");
+  glamourNpc.position.set(8.5, 0, 5.8);
+  glamourNpc.rotation.y = -Math.PI * 0.55;
+  scene.add(glamourNpc);
 
   const marker = new THREE.Mesh(
     new THREE.CylinderGeometry(0.45, 0.45, 0.08, 20),

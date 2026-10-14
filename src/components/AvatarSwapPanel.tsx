@@ -15,6 +15,7 @@ const SLOTS = [
   { key: "line-1",     label: "Crowd B",       hint: "Street crowd variant" },
   { key: "line-2",     label: "Crowd C",       hint: "Street crowd variant" },
   { key: "line-3",     label: "Crowd D",       hint: "Street crowd variant" },
+  { key: "glamour",   label: "Glamour NPC",   hint: "Club entrance — blonde" },
 ] as const;
 
 type SlotKey = (typeof SLOTS)[number]["key"];
