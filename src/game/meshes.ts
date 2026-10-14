@@ -80,6 +80,7 @@ const CARDS = {
   rapper: { url: "/avatars/live/rapper.png", aspect: 367 / 686 },
   beard: { url: "/avatars/live/beard.png", aspect: 213 / 578 },
   glamour: { url: "/avatars/live/glamour.png", aspect: 0.45 },
+  android: { url: "/avatars/live/android.png", aspect: 320 / 340 },
   line: [
     { url: "/avatars/live/line-0.png", aspect: 242 / 862 },
     { url: "/avatars/live/line-1.png", aspect: 233 / 874 },
@@ -123,7 +124,7 @@ function makeCard(spec: { url: string; aspect: number }, name: string) {
   return mesh;
 }
 
-function makePortrait(kind: "hero" | "rapper" | "beard" | "club" | "glamour", seed = 0) {
+function makePortrait(kind: "hero" | "rapper" | "beard" | "club" | "glamour" | "android", seed = 0) {
   const g = new THREE.Group();
   g.userData.live = true;
   g.userData.kind = kind;
@@ -136,6 +137,8 @@ function makePortrait(kind: "hero" | "rapper" | "beard" | "club" | "glamour", se
     g.add(makeCard(CARDS.beard, "front"));
   } else if (kind === "glamour") {
     g.add(makeCard(CARDS.glamour, "front"));
+  } else if (kind === "android") {
+    g.add(makeCard(CARDS.android, "front"));
   } else {
     const card = makeCard(CARDS.line[Math.abs(seed) % CARDS.line.length]!, "front");
     g.add(card);
@@ -157,7 +160,7 @@ function makePortrait(kind: "hero" | "rapper" | "beard" | "club" | "glamour", se
   return g;
 }
 
-export type PersonKind = "hero" | "club" | "rapper" | "beard" | "street" | "glamour";
+export type PersonKind = "hero" | "club" | "rapper" | "beard" | "street" | "glamour" | "android";
 
 function makeCrowd(kind: "club" | "street", seed: number) {
   const g = new THREE.Group();

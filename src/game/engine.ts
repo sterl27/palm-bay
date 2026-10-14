@@ -136,6 +136,11 @@ export function createGame(canvas: HTMLCanvasElement) {
   glamourNpc.rotation.y = -Math.PI * 0.55;
   scene.add(glamourNpc);
 
+  const androidNpc = makePerson("android");
+  androidNpc.position.set(7.2, 0, -7.2);
+  androidNpc.rotation.y = Math.PI * 0.15;
+  scene.add(androidNpc);
+
   const marker = new THREE.Mesh(
     new THREE.CylinderGeometry(0.45, 0.45, 0.08, 20),
     new THREE.MeshStandardMaterial({
