@@ -27,59 +27,6 @@ export type HudSnap = {
   score: number;
   strikes: number;
   night: number;
+  roomClock: number;
+  tookEnvelope: boolean;
 };
-
-const empty: HudSnap = {
-  phase: "loading",
-  chapter: 0,
-  chapterTitle: "Arrival",
-  objective: "",
-  prompt: "",
-  toast: "",
-  speed: 0,
-  inVehicle: true,
-  muted: false,
-  x: 0,
-  z: 0,
-  yaw: 0,
-  blipX: null,
-  blipZ: null,
-  hold: 0,
-  vehicleName: "Night",
-  reel: null,
-  caption: "",
-  slate: "",
-  lead: "lead",
-  score: 0,
-  strikes: 0,
-  night: 1,
-};
-
-type Bindings = {
-  start: () => void;
-  pause: () => void;
-  resume: () => void;
-  restart: () => void;
-  toggleMute: () => void;
-  setTouch: (steer: number, throttle: number) => void;
-  tapEnter: () => void;
-  tapHandbrake: () => void;
-  setActionHold: (v: boolean) => void;
-  skipReel: () => void;
-  secondNight: () => void;
-};
-
-type Store = HudSnap & {
-  bindings: Bindings | null;
-  bind: (b: Bindings) => void;
-  patch: (p: Partial<HudSnap>) => void;
-  setLead: (lead: LeadId) => void;
-};
-
-export const useGameStore = create<Store>((set) => ({
-  ...empty,
-  bindings: null,
-  bind: (bindings) => set({ bindings }),
-  patch: (p) => set(p),
-  setLead: (lead) => set({ lead }),
-}));
