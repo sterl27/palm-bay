@@ -176,8 +176,17 @@ export function createAudio() {
     },
     toggleMute() {
       muted = !muted;
-      if (master) master.gain.setTargetAtTime(muted ? 0 : 0.72, ctx?.currentTime ?? 0, 0.04);
+      if (master) master.gain.setTargetAtTime(muted ? 0 : (master.gain.value || 0.72), ctx?.currentTime ?? 0, 0.04);
       return muted;
+    },
+    setMasterVolume(v: number) {
+      if (master && ctx) master.gain.setTargetAtTime(muted ? 0 : v, ctx.currentTime, 0.04);
+    },
+    setSfxVolume(v: number) {
+      if (sfx) sfx.gain.value = v;
+    },
+    setMusicVolume(v: number) {
+      if (music) music.gain.value = v;
     },
   };
 }

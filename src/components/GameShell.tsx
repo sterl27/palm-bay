@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Pause, Volume2, VolumeX } from "lucide-react";
+import { Pause, Settings as SettingsIcon, Volume2, VolumeX } from "lucide-react";
 import { Minimap } from "@/components/Minimap";
 import { RadioStation } from "@/components/RadioStation";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { AvatarSwapPanel } from "@/components/AvatarSwapPanel";
+import { NpcChatPanel } from "@/components/NpcChatPanel";
 import { BEATS, LEADS, type LeadId } from "@/game/constants";
 import { useGameStore } from "@/game/store";
+import { useSettings } from "@/game/settings";
 
 export function GameShell() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [swapOpen, setSwapOpen] = useState(false);
   const phase = useGameStore((s) => s.phase);
-  const bindings = useGameStore((s) => s.bindings);
+  const { filmGrain, letterbox, hudOpacity, minimapEnabled, reduceMotion } = useSettings();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -27,27 +33,48 @@ export function GameShell() {
     };
   }, []);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "`" || e.key === "~") setSwapOpen((v) => !v);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-ink text-foam select-none">
+    <div
+      className="relative h-dvh w-full overflow-hidden bg-ink text-foam select-none"
+      data-reduce-motion={reduceMotion ? "true" : undefined}
+    >
       <canvas
         ref={canvasRef}
         className="absolute inset-0 size-full touch-none"
         onContextMenu={(e) => e.preventDefault()}
       />
-      <div className="film-grain absolute inset-0 z-20" />
-      <div className="letterbox pointer-events-none absolute top-0 right-0 left-0 z-20 h-8 sm:h-11" />
-      <div className="letterbox pointer-events-none absolute right-0 bottom-0 left-0 z-20 h-8 sm:h-11" />
+      {filmGrain && <div className="film-grain absolute inset-0 z-20" />}
+      {letterbox && (
+        <>
+          <div className="letterbox pointer-events-none absolute top-0 right-0 left-0 z-20 h-8 sm:h-11" />
+          <div className="letterbox pointer-events-none absolute right-0 bottom-0 left-0 z-20 h-8 sm:h-11" />
+        </>
+      )}
 
-      {(phase === "loading" || phase === "title") && <TitleScreen ready={ready} />}
-      {(phase === "play" || phase === "pause") && <Hud />}
-      {(phase === "play" || phase === "pause") && <Slate />}
-      {phase === "play" && <Reel />}
-      {phase === "pause" && <PauseMenu />}
-      {phase === "win" && <WinScreen />}
-      {phase === "fail" && <FailScreen />}
-      {phase === "play" && <TouchPad />}
-      {phase === "play" && <CornerControls />}
-      {(phase === "play" || phase === "pause") && <RadioStation />}
+      <div style={{ opacity: hudOpacity }}>
+        {(phase === "loading" || phase === "title") && <TitleScreen ready={ready} />}
+        {(phase === "play" || phase === "pause") && <Hud minimapEnabled={minimapEnabled} />}
+        {(phase === "play" || phase === "pause") && <Slate />}
+        {phase === "play" && <Reel />}
+        {phase === "pause" && <PauseMenu onOpenSettings={() => setSettingsOpen(true)} />}
+        {phase === "win" && <WinScreen />}
+        {phase === "fail" && <FailScreen />}
+        {phase === "play" && <TouchPad />}
+        {phase === "play" && <CornerControls />}
+        {(phase === "play" || phase === "pause") && <RadioStation />}
+      </div>
+
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+      {swapOpen && <AvatarSwapPanel onClose={() => setSwapOpen(false)} />}
+      <NpcChatPanel />
     </div>
   );
 }
@@ -94,7 +121,9 @@ function TitleScreen({ ready }: { ready: boolean }) {
   );
 }
 
-function Hud() {
+const SUBTITLE_SIZE = { small: "text-xs", medium: "text-sm", large: "text-base" };
+
+function Hud({ minimapEnabled }: { minimapEnabled: boolean }) {
   const chapter = useGameStore((s) => s.chapter);
   const chapterTitle = useGameStore((s) => s.chapterTitle);
   const objective = useGameStore((s) => s.objective);
@@ -107,6 +136,7 @@ function Hud() {
   const score = useGameStore((s) => s.score);
   const strikes = useGameStore((s) => s.strikes);
   const night = useGameStore((s) => s.night);
+  const { subtitles, subtitleSize } = useSettings();
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
@@ -117,13 +147,13 @@ function Hud() {
           Night {night} · Chapter 0{chapter + 1} · {chapterTitle}
         </p>
         <p className="font-display mt-1 text-xl text-foam sm:text-2xl">{objective}</p>
-        {caption ? (
-          <p className="mx-auto mt-2 max-w-md text-sm leading-snug text-foam/90">{caption}</p>
+        {subtitles && caption ? (
+          <p className={`mx-auto mt-2 max-w-md leading-snug text-foam/90 ${SUBTITLE_SIZE[subtitleSize]}`}>{caption}</p>
         ) : null}
       </div>
 
       <div className="absolute top-28 left-[max(0.75rem,env(safe-area-inset-left))] flex flex-col items-start gap-2 md:top-auto md:bottom-[max(2.75rem,env(safe-area-inset-bottom))]">
-        <Minimap />
+        {minimapEnabled && <Minimap />}
         <div className="rounded-md border border-border bg-ink/60 px-3 py-1.5 text-[11px] text-muted">
           {score} heat · {strikes}/3 cuts{inVehicle ? <> · <span className="tabular-nums text-foam">{Math.round(speed * 2.2)}</span></> : null}
         </div>
@@ -226,9 +256,10 @@ function Reel() {
   );
 }
 
-function PauseMenu() {
+function PauseMenu({ onOpenSettings }: { onOpenSettings: () => void }) {
   const bindings = useGameStore((s) => s.bindings);
   const muted = useGameStore((s) => s.muted);
+  const { controlHints } = useSettings();
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-ink/70 px-6">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-hud">
@@ -245,10 +276,18 @@ function PauseMenu() {
               {muted ? "Unmute" : "Mute"}
             </span>
           </MenuBtn>
+          <MenuBtn onClick={onOpenSettings} tone="ghost">
+            <span className="inline-flex items-center gap-2">
+              <SettingsIcon className="size-4" />
+              Settings
+            </span>
+          </MenuBtn>
         </div>
-        <p className="mt-5 text-xs leading-relaxed text-faint">
-          W/S drive or walk · A/D turn · F enter cars and doors · Space hold in the alley
-        </p>
+        {controlHints && (
+          <p className="mt-5 text-xs leading-relaxed text-faint">
+            W/S drive or walk · A/D turn · F enter cars and doors · Space hold in the alley
+          </p>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,34 @@
 import * as THREE from "three";
 import { loadLive } from "./textures";
 
+// Registry of live-card materials keyed by slot name (e.g. "hero-front", "rapper")
+export const liveMaterials = new Map<string, THREE.MeshStandardMaterial[]>();
+
+export function swapLiveSprite(slot: string, file: File): Promise<{ w: number; h: number }> {
+  const mats = liveMaterials.get(slot);
+  if (!mats?.length) return Promise.resolve({ w: 0, h: 0 });
+  const objectUrl = URL.createObjectURL(file);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const loader = new THREE.TextureLoader();
+      const tex = loader.load(objectUrl, () => URL.revokeObjectURL(objectUrl));
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      for (const mat of mats) {
+        mat.map?.dispose();
+        mat.map = tex;
+        mat.emissiveMap = tex;
+        mat.needsUpdate = true;
+      }
+      resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve({ w: 0, h: 0 }); };
+    img.src = objectUrl;
+  });
+}
+
 const mats = new Map<string, THREE.MeshStandardMaterial>();
 
 function mat(
@@ -51,6 +79,8 @@ const CARDS = {
   heroBack: { url: "/avatars/live/hero-back.png", aspect: 219 / 365 },
   rapper: { url: "/avatars/live/rapper.png", aspect: 367 / 686 },
   beard: { url: "/avatars/live/beard.png", aspect: 213 / 578 },
+  glamour: { url: "/avatars/live/glamour.png", aspect: 0.45 },
+  android: { url: "/avatars/live/android.png", aspect: 320 / 340 },
   line: [
     { url: "/avatars/live/line-0.png", aspect: 242 / 862 },
     { url: "/avatars/live/line-1.png", aspect: 233 / 874 },
@@ -69,20 +99,38 @@ function makeCard(spec: { url: string; aspect: number }, name: string) {
   }
   geo.computeVertexNormals();
   const tex = loadLive(spec.url);
-  const mesh = new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({
-      map: tex,
-      emissiveMap: tex,
-      emissive: new THREE.Color(0xffffff),
-      emissiveIntensity: 0.62,
-      roughness: 0.68,
-      metalness: 0,
-      transparent: true,
-      alphaTest: 0.32,
-      depthWrite: true,
-    }),
-  );
+  const cardMat = new THREE.MeshStandardMaterial({
+    map: tex,
+    emissiveMap: tex,
+    emissive: new THREE.Color(0xffffff),
+    emissiveIntensity: 0.62,
+    roughness: 0.68,
+    metalness: 0,
+    transparent: true,
+    alphaTest: 0.32,
+    depthWrite: true,
+  });
+  // Auto-remove studio gray/black backgrounds from source JPEGs
+  cardMat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <map_fragment>",
+      `#include <map_fragment>
+      {
+        float _mx = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
+        float _mn = min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));
+        float _sat = _mx > 0.001 ? (_mx - _mn) / _mx : 0.0;
+        if (_sat < 0.09 && _mx > 0.11 && _mx < 0.52) diffuseColor.a = 0.0;
+        if (_mx < 0.04) diffuseColor.a = 0.0;
+      }`,
+    );
+  };
+  // Register for runtime hot-swap
+  const slotKey = spec.url.split("/").pop()!.replace(".png", "");
+  const existing = liveMaterials.get(slotKey) ?? [];
+  existing.push(cardMat);
+  liveMaterials.set(slotKey, existing);
+
+  const mesh = new THREE.Mesh(geo, cardMat);
   mesh.name = name;
   mesh.position.y = LIVE_H * 0.5;
   mesh.castShadow = false;
@@ -90,7 +138,7 @@ function makeCard(spec: { url: string; aspect: number }, name: string) {
   return mesh;
 }
 
-function makePortrait(kind: "hero" | "rapper" | "beard" | "club", seed = 0) {
+function makePortrait(kind: "hero" | "rapper" | "beard" | "club" | "glamour" | "android", seed = 0) {
   const g = new THREE.Group();
   g.userData.live = true;
   g.userData.kind = kind;
@@ -101,6 +149,10 @@ function makePortrait(kind: "hero" | "rapper" | "beard" | "club", seed = 0) {
     g.add(makeCard(CARDS.rapper, "front"));
   } else if (kind === "beard") {
     g.add(makeCard(CARDS.beard, "front"));
+  } else if (kind === "glamour") {
+    g.add(makeCard(CARDS.glamour, "front"));
+  } else if (kind === "android") {
+    g.add(makeCard(CARDS.android, "front"));
   } else {
     const card = makeCard(CARDS.line[Math.abs(seed) % CARDS.line.length]!, "front");
     g.add(card);
@@ -122,7 +174,7 @@ function makePortrait(kind: "hero" | "rapper" | "beard" | "club", seed = 0) {
   return g;
 }
 
-export type PersonKind = "hero" | "club" | "rapper" | "beard" | "street";
+export type PersonKind = "hero" | "club" | "rapper" | "beard" | "street" | "glamour" | "android";
 
 function makeCrowd(kind: "club" | "street", seed: number) {
   const g = new THREE.Group();

@@ -4,6 +4,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { CHAPTERS, FIXED, clamp, inAlley, inClub, lerp } from "./constants";
+import type { Settings } from "./settings";
 import { createInput, type Actions } from "./input";
 import { createAudio } from "./audio";
 import { animatePerson, makePerson, makeTesla } from "./meshes";
@@ -43,7 +44,7 @@ export function createGame(canvas: HTMLCanvasElement) {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x07080e);
-  scene.fog = new THREE.Fog(0x07080e, 24, 110);
+  scene.fog = new THREE.FogExp2(0x0d0318, 0.022);
 
   const camera = new THREE.PerspectiveCamera(52, 1, 0.12, 220);
   camera.position.set(-1.15, 1.48, 12.2);
@@ -82,11 +83,29 @@ export function createGame(canvas: HTMLCanvasElement) {
         varying vec3 vP;
         void main(){
           float h = normalize(vP).y;
-          vec3 zenith = vec3(0.03, 0.04, 0.09);
-          vec3 mid = vec3(0.08, 0.06, 0.12);
-          vec3 horizon = vec3(0.22, 0.08, 0.12);
+          vec3 zenith = vec3(0.02, 0.02, 0.10);
+          vec3 mid = vec3(0.04, 0.03, 0.18);
+          vec3 horizon = vec3(0.38, 0.04, 0.28);
           vec3 col = mix(horizon, mid, smoothstep(-0.05, 0.25, h));
           col = mix(col, zenith, smoothstep(0.2, 0.85, h));
+
+          // Neon horizon glow line
+          float hGlow = exp(-pow(abs(h + 0.02) * 22.0, 1.1));
+          col += vec3(0.55, 0.05, 0.45) * hGlow;
+          col += vec3(0.10, 0.01, 0.09) * exp(-abs(h + 0.02) * 7.0);
+
+          // Stars in upper hemisphere
+          if (h > 0.04) {
+            vec3 dir = normalize(vP);
+            vec2 uv = vec2(atan(dir.z, dir.x) * 0.15915, asin(clamp(dir.y,-1.0,1.0)) * 0.63662);
+            vec2 cell = floor(uv * 110.0);
+            float rng  = fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
+            float rng2 = fract(sin(dot(cell, vec2(269.5, 183.3))) * 17358.3);
+            vec2 sub = fract(uv * 110.0) - 0.5;
+            float star = step(0.965, rng) * (1.0 - smoothstep(0.0, 0.12, length(sub)));
+            col += star * rng2 * 0.85 * smoothstep(0.04, 0.20, h);
+          }
+
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -113,6 +132,25 @@ export function createGame(canvas: HTMLCanvasElement) {
   tesla.add(headL.target);
   tesla.add(headR.target);
 
+  // Volumetric headlight beam cones
+  const headConeGeo = new THREE.CylinderGeometry(0.72, 0.025, 10, 10, 1, true);
+  const headConeMat = new THREE.MeshBasicMaterial({
+    color: 0xfff8d8,
+    transparent: true,
+    opacity: 0.055,
+    side: THREE.BackSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const coneL = new THREE.Mesh(headConeGeo, headConeMat);
+  const coneR = new THREE.Mesh(headConeGeo, headConeMat.clone());
+  coneL.position.set(-0.55, 0.62, -7.2);
+  coneR.position.set(0.55, 0.62, -7.2);
+  coneL.rotation.x = -Math.PI / 2;
+  coneR.rotation.x = -Math.PI / 2;
+  tesla.add(coneL);
+  tesla.add(coneR);
+
   const heroFill = new THREE.PointLight(0xffe4c8, 0, 8, 2);
   scene.add(heroFill);
   const heroRim = new THREE.PointLight(0x7eb6ff, 0, 7, 2);
@@ -130,6 +168,56 @@ export function createGame(canvas: HTMLCanvasElement) {
     return m;
   });
 
+  const glamourNpc = makePerson("glamour");
+  glamourNpc.position.set(8.5, 0, 5.8);
+  glamourNpc.rotation.y = -Math.PI * 0.55;
+  scene.add(glamourNpc);
+  const glamourLight = new THREE.PointLight(0xff40a0, 3.5, 5, 2);
+  glamourLight.position.set(8.5, 2.2, 5.8);
+  scene.add(glamourLight);
+
+  const androidNpc = makePerson("android");
+  androidNpc.position.set(7.2, 0, -7.2);
+  androidNpc.rotation.y = Math.PI * 0.15;
+  scene.add(androidNpc);
+  const androidLight = new THREE.PointLight(0xffc060, 3.5, 5, 2);
+  androidLight.position.set(7.2, 2.2, -7.2);
+  scene.add(androidLight);
+
+  // NPC click-to-chat raycasting
+  const NPC_NAMES: Partial<Record<string, string>> = {
+    rapper: "Lil' Ghost",
+    beard: "Victor",
+    glamour: "Elena",
+    android: "Unit-7",
+    club: "Marco",
+    hero: "Don Sterleone",
+  };
+  const npcRayTargets: Array<{ group: THREE.Object3D; kind: string }> = [
+    { group: glamourNpc, kind: "glamour" },
+    { group: androidNpc, kind: "android" },
+    ...npcMeshes.slice(0, 4).map((m, i) => ({ group: m, kind: sim.npcs[i]!.kind as string })),
+  ];
+  const raycaster = new THREE.Raycaster();
+  const clickNdc = new THREE.Vector2();
+  canvas.addEventListener("click", (e) => {
+    if (phase !== "play") return;
+    const rect = canvas.getBoundingClientRect();
+    clickNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    clickNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(clickNdc, camera);
+    for (const { group, kind } of npcRayTargets) {
+      const hits = raycaster.intersectObject(group, true);
+      if (hits.length > 0 && hits[0]!.distance < 14) {
+        const name = NPC_NAMES[kind] ?? "Stranger";
+        pause();
+        useGameStore.getState().openNpcChat(kind, name);
+        break;
+      }
+    }
+  });
+
+  const markerGroup = new THREE.Group();
   const marker = new THREE.Mesh(
     new THREE.CylinderGeometry(0.45, 0.45, 0.08, 20),
     new THREE.MeshStandardMaterial({
@@ -140,7 +228,21 @@ export function createGame(canvas: HTMLCanvasElement) {
       opacity: 0.7,
     }),
   );
-  scene.add(marker);
+  markerGroup.add(marker);
+  const beamMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.18, 14, 8, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.12,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  beamMesh.position.y = 7;
+  markerGroup.add(beamMesh);
+  scene.add(markerGroup);
 
   const rainCount = 700;
   const rainPos = new Float32Array(rainCount * 3);
@@ -164,7 +266,7 @@ export function createGame(canvas: HTMLCanvasElement) {
   scene.add(rain);
 
   let composer: EffectComposer | null = null;
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.36, 0.42, 0.7);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.48, 0.55, 0.88);
   function setupComposer() {
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
@@ -172,6 +274,10 @@ export function createGame(canvas: HTMLCanvasElement) {
     composer.addPass(new OutputPass());
   }
   setupComposer();
+
+  let targetFrameMs = 0; // 0 = uncapped
+  let lastFrameT = 0;
+  let userFov = 52; // base FOV from settings, cinematic overrides are relative to this
 
   let phase: "title" | "play" | "pause" | "win" | "fail" = "title";
   let acc = 0;
@@ -183,6 +289,7 @@ export function createGame(canvas: HTMLCanvasElement) {
   let lookX = 4.6,
     lookY = 1.42,
     lookZ = 2.6;
+  let camRoll = 0;
   let hudT = 0;
   let running = true;
   let frames = 0;
@@ -298,8 +405,27 @@ export function createGame(canvas: HTMLCanvasElement) {
       useGameStore.getState().patch({ phase: "play", reel: null, slate: "Second night", caption: "" });
       start();
     },
+    applySettings: (s: Settings) => {
+      renderer.setPixelRatio(s.pixelRatio);
+      renderer.shadowMap.enabled = s.shadowsEnabled;
+      moon.castShadow = s.shadowsEnabled;
+      key.castShadow = s.shadowsEnabled;
+      bloom.strength = s.bloomEnabled ? 0.36 : 0;
+      userFov = s.fov;
+      targetFrameMs = s.frameCap > 0 ? 1000 / s.frameCap : 0;
+      const visible = Math.round(s.crowdDensity * npcMeshes.length);
+      npcMeshes.forEach((m, i) => { m.visible = i < visible; });
+      audio.setMasterVolume(s.masterVolume);
+      audio.setSfxVolume(s.sfxVolume);
+      audio.setMusicVolume(s.musicVolume);
+    },
   });
   useGameStore.getState().patch({ phase: "title" });
+
+  // Apply persisted settings on startup (lazy import avoids circular dep at module level)
+  void import("./settings").then(({ useSettings }) => {
+    useGameStore.getState().bindings?.applySettings(useSettings.getState());
+  });
 
   window.__controlsTest = {
     getYaw: () => sim.player.yaw,
@@ -385,6 +511,8 @@ export function createGame(canvas: HTMLCanvasElement) {
     const lightsOn = sim.player.inCar;
     headL.intensity = lightsOn ? 8 : 0;
     headR.intensity = lightsOn ? 8 : 0;
+    coneL.visible = lightsOn;
+    coneR.visible = lightsOn;
     const hfx = -Math.sin(sim.player.yaw);
     const hfz = -Math.cos(sim.player.yaw);
     heroFill.position.set(sim.player.x + hfx * 1.15, 2.05, sim.player.z + hfz * 1.15);
@@ -429,10 +557,11 @@ export function createGame(canvas: HTMLCanvasElement) {
 
     const blip = blipOf(sim);
     if (blip && !sim.ended) {
-      marker.visible = true;
-      marker.position.set(blip.x, 0.12 + Math.sin(t * 3) * 0.06, blip.z);
+      markerGroup.visible = true;
+      markerGroup.position.set(blip.x, 0.12 + Math.sin(t * 3) * 0.06, blip.z);
+      beamMesh.rotation.y = t * 0.4;
     } else {
-      marker.visible = false;
+      markerGroup.visible = false;
     }
 
     const pulse = 0.55 + Math.sin(t * 4.2) * 0.35;
@@ -575,7 +704,13 @@ export function createGame(canvas: HTMLCanvasElement) {
     lookZ = lerp(lookZ, sim.player.z + fz * lookAhead, k);
     camera.position.set(camX, camY, camZ);
     camera.lookAt(lookX, lookY, lookZ);
-    const fov = own || sim.ended ? 32 : alleyShot ? 38 : 50 + clamp(Math.abs(sim.player.speed) / 40, 0, 1) * 8;
+    // Subtle roll into turns + pitch down on braking
+    const rollTarget = inCar ? -lastActions.steer * 0.028 : 0;
+    camRoll = lerp(camRoll, rollTarget, 1 - Math.exp(-7 * dt));
+    camera.rotation.z += camRoll;
+    const baseDrive = userFov - 2; // slight subtraction keeps the formula calibrated at default fov=52
+    const speedFrac = clamp(Math.abs(sim.player.speed) / 40, 0, 1);
+    const fov = own || sim.ended ? 32 : alleyShot ? 38 : baseDrive + speedFrac * 14;
     if (Math.abs(camera.fov - fov) > 0.2) {
       camera.fov = lerp(camera.fov, fov, 0.08);
       camera.updateProjectionMatrix();
@@ -584,6 +719,8 @@ export function createGame(canvas: HTMLCanvasElement) {
 
   function tick(now: number) {
     if (!running) return;
+    if (targetFrameMs > 0 && now - lastFrameT < targetFrameMs) return;
+    lastFrameT = now;
     const raw = Math.min(0.1, (now - last) / 1000);
     last = now;
     acc += raw;
