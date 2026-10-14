@@ -73,15 +73,21 @@ type Bindings = {
 
 type Store = HudSnap & {
   bindings: Bindings | null;
+  npcChat: { kind: string; name: string } | null;
   bind: (b: Bindings) => void;
   patch: (p: Partial<HudSnap>) => void;
   setLead: (lead: LeadId) => void;
+  openNpcChat: (kind: string, name: string) => void;
+  closeNpcChat: () => void;
 };
 
 export const useGameStore = create<Store>((set) => ({
   ...empty,
   bindings: null,
+  npcChat: null,
   bind: (bindings) => set({ bindings }),
   patch: (p) => set(p),
   setLead: (lead) => set({ lead }),
+  openNpcChat: (kind, name) => set({ npcChat: { kind, name } }),
+  closeNpcChat: () => set({ npcChat: null }),
 }));

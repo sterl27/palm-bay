@@ -4,6 +4,7 @@ import { Minimap } from "@/components/Minimap";
 import { RadioStation } from "@/components/RadioStation";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { AvatarSwapPanel } from "@/components/AvatarSwapPanel";
+import { NpcChatPanel } from "@/components/NpcChatPanel";
 import { BEATS, LEADS, type LeadId } from "@/game/constants";
 import { useGameStore } from "@/game/store";
 import { useSettings } from "@/game/settings";
@@ -73,6 +74,7 @@ export function GameShell() {
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       {swapOpen && <AvatarSwapPanel onClose={() => setSwapOpen(false)} />}
+      <NpcChatPanel />
     </div>
   );
 }
