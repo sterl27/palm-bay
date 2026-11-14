@@ -61,8 +61,8 @@ function contactShadow(w: number, d: number, opacity: number) {
 type CardSpec = { url: string; aspect: number; height: number };
 
 const CARDS = {
-  heroFront: { url: "/avatars/live/hero-front.png", aspect: 414 / 1100, height: 1.84 },
-  heroBack: { url: "/avatars/live/hero-back.png", aspect: 373 / 1100, height: 1.84 },
+  heroFront: { url: "/avatars/live/hero-front.png", aspect: 473 / 1500, height: 1.86 },
+  heroBack: { url: "/avatars/live/hero-back.png", aspect: 473 / 1500, height: 1.86 },
   rapper: { url: "/avatars/live/rapper.png", aspect: 918 / 1500, height: 1.8 },
   beard: { url: "/avatars/live/beard.png", aspect: 373 / 1500, height: 1.88 },
   line: [
