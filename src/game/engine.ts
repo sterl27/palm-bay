@@ -173,11 +173,33 @@ export function createGame(canvas: HTMLCanvasElement) {
   scene.add(faceKey);
   scene.add(faceKey.target);
 
-  const playerMesh = makePerson("hero");
-  scene.add(playerMesh);
+  // One figure per lead; the picker decides which one the player walks as.
+  const leadMeshes = {
+    lead: makePerson("hero"),
+    voice: makePerson("rapper"),
+    quiet: makePerson("beard"),
+  };
+  for (const m of Object.values(leadMeshes)) {
+    m.visible = false;
+    scene.add(m);
+  }
+  let playerMesh = leadMeshes.lead;
+  function setPlayerMesh(id: keyof typeof leadMeshes) {
+    if (playerMesh === leadMeshes[id]) return;
+    playerMesh.visible = false;
+    playerMesh = leadMeshes[id];
+  }
 
   const npcMeshes = sim.npcs.map((n) => {
     const m = makePerson(n.kind, n.seed);
+    scene.add(m);
+    return m;
+  });
+  // Whoever you play leaves their spot in the alley; Don Sterleone stands there instead.
+  const standIns = sim.npcs.map((n) => {
+    if (n.kind !== "rapper" && n.kind !== "beard") return null;
+    const m = makePerson("hero");
+    m.visible = false;
     scene.add(m);
     return m;
   });
@@ -251,6 +273,10 @@ export function createGame(canvas: HTMLCanvasElement) {
   });
 
   let composer: EffectComposer | null = null;
+  const draw = () => {
+    if (composer) composer.render();
+    else renderer.render(scene, camera);
+  };
   const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.46, 0.55, 0.82);
   function setupComposer() {
     // Multisampled HDR target: the composer bypasses the canvas's own MSAA,
@@ -507,6 +533,7 @@ export function createGame(canvas: HTMLCanvasElement) {
     if (doorR) doorR.rotation.y = -tesla.userData.door * 1.18;
     if (doorL) doorL.rotation.y = tesla.userData.door * 1.18;
 
+    setPlayerMesh(sim.lead);
     playerMesh.visible = !sim.player.inCar;
     playerMesh.position.set(sim.player.x, 0, sim.player.z);
     playerMesh.rotation.y = sim.player.yaw;
@@ -521,8 +548,15 @@ export function createGame(canvas: HTMLCanvasElement) {
 
     for (let i = 0; i < sim.npcs.length; i++) {
       const n = sim.npcs[i]!;
-      const m = npcMeshes[i];
+      let m = npcMeshes[i];
       if (!m) continue;
+      const standIn = standIns[i];
+      if (standIn) {
+        const swapped = (n.kind === "rapper" && sim.lead === "voice") || (n.kind === "beard" && sim.lead === "quiet");
+        m.visible = !swapped;
+        standIn.visible = swapped;
+        if (swapped) m = standIn;
+      }
       m.position.set(n.x, 0, n.z);
       m.rotation.y = n.yaw;
       animatePerson(m, t + i * 0.3, n.speed, n.mode);
@@ -573,10 +607,12 @@ export function createGame(canvas: HTMLCanvasElement) {
     const doorL = tesla.getObjectByName("doorL");
     if (doorR) doorR.rotation.y = -1.18;
     if (doorL) doorL.rotation.y = 0;
-    headL.intensity = 8;
-    headR.intensity = 8;
-    heroFill.position.set(3.05, 1.9, 4.55);
-    heroFill.intensity = 7.2;
+    // low beams on the title so the glare does not swallow the lead
+    headL.intensity = 2;
+    headR.intensity = 2;
+    heroFill.position.set(3.9, 2.3, 6.2);
+    heroFill.intensity = 3;
+    setPlayerMesh(useGameStore.getState().lead);
     playerMesh.visible = true;
     playerMesh.position.set(3.12, 0, 4.62);
     playerMesh.rotation.y = 0.82;
@@ -612,7 +648,8 @@ export function createGame(canvas: HTMLCanvasElement) {
     camX = lerp(camX, tx, 1 - Math.exp(-1.05 * dt));
     camY = lerp(camY, 1.48, 1 - Math.exp(-1.05 * dt));
     camZ = lerp(camZ, tz, 1 - Math.exp(-1.05 * dt));
-    lookX = lerp(lookX, 4.6, 1 - Math.exp(-1.2 * dt));
+    // aim right of the kerb so the lead and the car sit left of the title card
+    lookX = lerp(lookX, 10.5, 1 - Math.exp(-1.2 * dt));
     lookY = lerp(lookY, 1.42, 1 - Math.exp(-1.2 * dt));
     lookZ = lerp(lookZ, 2.6, 1 - Math.exp(-1.2 * dt));
     camera.position.set(camX, camY, camZ);
@@ -685,7 +722,7 @@ export function createGame(canvas: HTMLCanvasElement) {
       cameraTitle(visualDt);
       syncMeshes(t, visualDt, lastActions);
       poseTitle(t);
-      composer ? composer.render() : renderer.render(scene, camera);
+      draw();
       return;
     }
 
@@ -693,7 +730,7 @@ export function createGame(canvas: HTMLCanvasElement) {
       acc = 0;
       const actions = input.sample();
       if (actions.enter || actions.fire) skipReel();
-      composer ? composer.render() : renderer.render(scene, camera);
+      draw();
       return;
     }
 
@@ -706,7 +743,7 @@ export function createGame(canvas: HTMLCanvasElement) {
         const m = audio.toggleMute();
         useGameStore.getState().patch({ muted: m });
       }
-      composer ? composer.render() : renderer.render(scene, camera);
+      draw();
       return;
     }
 
@@ -755,7 +792,7 @@ export function createGame(canvas: HTMLCanvasElement) {
       hudT = 0;
       syncHud();
     }
-    composer ? composer.render() : renderer.render(scene, camera);
+    draw();
   }
 
   renderer.setAnimationLoop(tick);

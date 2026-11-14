@@ -370,7 +370,7 @@ export function makeTesla() {
     d.add(panel);
     const pane = new THREE.Mesh(
       new THREE.BoxGeometry(0.02, 0.3, 0.98),
-      mat(0x0a0e14, { roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.55 }),
+      mat(0x0a0e14, { roughness: 0.45, metalness: 0, transparent: true, opacity: 0.55, envMapIntensity: 0.4 }),
     );
     pane.position.set(-side * 0.02, 0.4, 0.6);
     d.add(pane);

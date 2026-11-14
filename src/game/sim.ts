@@ -287,8 +287,8 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     }
     const fx = -Math.sin(p.yaw);
     const fz = -Math.cos(p.yaw);
-    let nx = p.x + fx * p.speed * dt;
-    let nz = p.z + fz * p.speed * dt;
+    const nx = p.x + fx * p.speed * dt;
+    const nz = p.z + fz * p.speed * dt;
     const hit = resolveCircle(nx, nz, 1.35, colliders);
     if (Math.abs(hit.x - nx) > 0.01 || Math.abs(hit.z - nz) > 0.01) {
       const hard = Math.abs(p.speed) > 6;
