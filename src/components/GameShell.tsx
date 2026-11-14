@@ -56,20 +56,12 @@ function TitleScreen({ ready }: { ready: boolean }) {
   const start = useGameStore((s) => s.bindings?.start);
   return (
     <div className="absolute inset-0 z-30 flex flex-col items-center justify-end px-6 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-10">
-      <video
-        className="pointer-events-none absolute inset-0 size-full object-cover"
-        src="/cinematics/arrival.mp4"
-        autoPlay
-        muted
-        loop
-        playsInline
-        poster="/avatars/hero.png"
-      />
-      <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-ink via-ink/55 to-ink/25" />
+      {/* The live scene behind this overlay is the backdrop: the car at the rope and whichever lead is picked. */}
+      <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-ink via-ink/35 to-transparent" />
       <div className="relative w-full max-w-lg text-center">
         <p className="mb-3 text-xs font-medium tracking-[0.42em] text-muted uppercase">Cinematic avatars · one night</p>
         <h1 className="mx-auto w-full max-w-md">
-          <img src="/brand/don-sterleone.jpg" alt="Don Sterleone" className="w-full object-contain" />
+          <img src="/brand/don-sterleone.png" alt="Don Sterleone" className="w-full object-contain" />
         </h1>
         <p className="mx-auto mt-5 max-w-sm text-sm leading-relaxed text-muted">
           Real-life leads. Pull the black car up to the rope, walk it, then finish the alley like the picture.

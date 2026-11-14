@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { CHAPTERS, FIXED, clamp, inAlley, inClub, lerp } from "./constants";
 import { createInput, type Actions } from "./input";
@@ -22,6 +23,7 @@ declare global {
       getFrames?: () => number;
       setSteer?: (v: number) => void;
       setKeys?: (codes: string[]) => void;
+      warp?: (x: number, z: number, yaw: number, inCar?: boolean, chapter?: number) => void;
     };
   }
 }
@@ -34,7 +36,11 @@ export function createGame(canvas: HTMLCanvasElement) {
     powerPreference: "high-performance",
   });
   renderer.setClearColor(0x07080e, 1);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  // Phones and small machines get a lighter pipeline: no MSAA target, a
+  // smaller shadow map, thinner rain.
+  const lite =
+    window.matchMedia("(pointer: coarse)").matches || (navigator.hardwareConcurrency ?? 8) <= 4;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lite ? 1.5 : 1.75));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.32;
@@ -43,26 +49,31 @@ export function createGame(canvas: HTMLCanvasElement) {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x07080e);
-  scene.fog = new THREE.Fog(0x07080e, 24, 110);
+  scene.fog = new THREE.FogExp2(0x0b0a14, 0.0115);
 
   const camera = new THREE.PerspectiveCamera(52, 1, 0.12, 220);
   camera.position.set(-1.15, 1.48, 12.2);
   camera.lookAt(4.6, 1.42, 2.6);
 
-  scene.add(new THREE.HemisphereLight(0x1c2a44, 0x0a0808, 0.62));
-  scene.add(new THREE.AmbientLight(0x1a1820, 0.28));
-  const moon = new THREE.DirectionalLight(0xa8c4e8, 0.72);
-  moon.position.set(-28, 48, 18);
+  scene.add(new THREE.HemisphereLight(0x1c2a44, 0x0a0808, 0.5));
+  scene.add(new THREE.AmbientLight(0x1a1820, 0.2));
+  // The moon's shadow frustum rides with the player (see syncMeshes), so a
+  // 2k map only has to cover the block they are standing on.
+  const MOON_OFFSET = new THREE.Vector3(-17, 30, 11);
+  const moon = new THREE.DirectionalLight(0xa8c4e8, 0.8);
+  moon.position.copy(MOON_OFFSET);
   moon.castShadow = renderer.shadowMap.enabled;
-  moon.shadow.mapSize.set(1024, 1024);
+  moon.shadow.mapSize.set(lite ? 1024 : 2048, lite ? 1024 : 2048);
   moon.shadow.camera.near = 4;
-  moon.shadow.camera.far = 120;
-  moon.shadow.camera.left = -36;
-  moon.shadow.camera.right = 36;
-  moon.shadow.camera.top = 36;
-  moon.shadow.camera.bottom = -36;
-  moon.shadow.bias = -0.00035;
+  moon.shadow.camera.far = 80;
+  moon.shadow.camera.left = -24;
+  moon.shadow.camera.right = 24;
+  moon.shadow.camera.top = 24;
+  moon.shadow.camera.bottom = -24;
+  moon.shadow.bias = -0.0004;
+  moon.shadow.normalBias = 0.03;
   scene.add(moon);
+  scene.add(moon.target);
   const key = new THREE.SpotLight(0xffe2c4, 2.4, 18, 0.55, 0.45, 1);
   key.position.set(2.4, 6.2, 4.8);
   key.castShadow = true;
@@ -84,15 +95,56 @@ export function createGame(canvas: HTMLCanvasElement) {
           float h = normalize(vP).y;
           vec3 zenith = vec3(0.03, 0.04, 0.09);
           vec3 mid = vec3(0.08, 0.06, 0.12);
-          vec3 horizon = vec3(0.22, 0.08, 0.12);
+          vec3 horizon = vec3(0.13, 0.055, 0.1);
           vec3 col = mix(horizon, mid, smoothstep(-0.05, 0.25, h));
           col = mix(col, zenith, smoothstep(0.2, 0.85, h));
+          // city glow hugging the horizon
+          col += vec3(0.14, 0.05, 0.08) * pow(1.0 - clamp(h, 0.0, 1.0), 12.0);
+          // stars, thinned out toward the light-polluted horizon
+          vec3 d = normalize(vP);
+          vec3 cell = floor(d * 190.0);
+          float n = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+          float star = smoothstep(0.9965, 1.0, n) * smoothstep(0.12, 0.6, h);
+          col += vec3(0.8, 0.86, 1.0) * star * (0.5 + 0.5 * fract(n * 91.7));
+          // moon, matching the key light's direction
+          vec3 md = normalize(vec3(-17.0, 30.0, 11.0));
+          float m = dot(d, md);
+          col += vec3(0.75, 0.82, 1.0) * smoothstep(0.9990, 0.9994, m);
+          col += vec3(0.16, 0.2, 0.32) * pow(max(m, 0.0), 180.0);
           gl_FragColor = vec4(col, 1.0);
         }
       `,
     }),
   );
   scene.add(sky);
+
+  // Image-based light: a tiny stand-in for the street (sky, club neon, lamps)
+  // baked once, so car paint, glass and puddles have something to reflect.
+  {
+    const envScene = new THREE.Scene();
+    envScene.add(sky.clone());
+    const panel = (color: number, intensity: number, w: number, h: number, x: number, y: number, z: number) => {
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity), side: THREE.DoubleSide }),
+      );
+      m.position.set(x, y, z);
+      m.lookAt(0, 1, 0);
+      envScene.add(m);
+    };
+    panel(0xff4d7a, 3, 9, 3, 22, 6, 0);
+    panel(0x6ec4e8, 3, 10, 4, -20, 5, 12);
+    panel(0xffc98a, 6, 3, 3, -8, 14, -14);
+    panel(0xffc98a, 6, 3, 3, 8, 14, 16);
+    panel(0xf0c070, 2.5, 12, 3, -22, 4, -16);
+    panel(0xa8c4e8, 2, 30, 30, -17, 60, 11);
+    // low overcast: gives roofs and hoods a soft top sheen
+    panel(0x3a4a66, 1, 120, 120, 0, 48, 0);
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(envScene, 0.035).texture;
+    scene.environmentIntensity = 0.5;
+    pmrem.dispose();
+  }
 
   const world = buildWorld(scene);
   const sim: Sim = createSim();
@@ -121,11 +173,33 @@ export function createGame(canvas: HTMLCanvasElement) {
   scene.add(faceKey);
   scene.add(faceKey.target);
 
-  const playerMesh = makePerson("hero");
-  scene.add(playerMesh);
+  // One figure per lead; the picker decides which one the player walks as.
+  const leadMeshes = {
+    lead: makePerson("hero"),
+    voice: makePerson("rapper"),
+    quiet: makePerson("beard"),
+  };
+  for (const m of Object.values(leadMeshes)) {
+    m.visible = false;
+    scene.add(m);
+  }
+  let playerMesh = leadMeshes.lead;
+  function setPlayerMesh(id: keyof typeof leadMeshes) {
+    if (playerMesh === leadMeshes[id]) return;
+    playerMesh.visible = false;
+    playerMesh = leadMeshes[id];
+  }
 
   const npcMeshes = sim.npcs.map((n) => {
     const m = makePerson(n.kind, n.seed);
+    scene.add(m);
+    return m;
+  });
+  // Whoever you play leaves their spot in the alley; Don Sterleone stands there instead.
+  const standIns = sim.npcs.map((n) => {
+    if (n.kind !== "rapper" && n.kind !== "beard") return null;
+    const m = makePerson("hero");
+    m.visible = false;
     scene.add(m);
     return m;
   });
@@ -142,34 +216,77 @@ export function createGame(canvas: HTMLCanvasElement) {
   );
   scene.add(marker);
 
-  const rainCount = 700;
-  const rainPos = new Float32Array(rainCount * 3);
+  // Rain as short slanted streaks that follow the camera, so the density
+  // stays up wherever the player is without simulating the whole map.
+  const rainCount = lite ? 700 : 1500;
+  const RAIN_R = 22;
+  const RAIN_TOP = 15;
+  const rainSeed = new Float32Array(rainCount * 4);
   for (let i = 0; i < rainCount; i++) {
-    rainPos[i * 3] = -22 + Math.random() * 68;
-    rainPos[i * 3 + 1] = Math.random() * 16;
-    rainPos[i * 3 + 2] = -24 + Math.random() * 72;
+    rainSeed[i * 4] = (Math.random() - 0.5) * 2 * RAIN_R;
+    rainSeed[i * 4 + 1] = Math.random() * RAIN_TOP;
+    rainSeed[i * 4 + 2] = (Math.random() - 0.5) * 2 * RAIN_R;
+    rainSeed[i * 4 + 3] = 15 + Math.random() * 8;
   }
+  const rainPos = new Float32Array(rainCount * 6);
   const rainGeo = new THREE.BufferGeometry();
   rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3));
-  const rain = new THREE.Points(
+  const rain = new THREE.LineSegments(
     rainGeo,
-    new THREE.PointsMaterial({
-      color: 0xb8c4d4,
-      size: 0.045,
+    new THREE.LineBasicMaterial({
+      color: 0xa9bfdc,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.2,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
     }),
   );
+  rain.frustumCulled = false;
   scene.add(rain);
 
+  // Grade: vignette, a little lens fringing at the edges, fine film grain.
+  const gradePass = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, uTime: { value: 0 } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      uniform float uTime;
+      varying vec2 vUv;
+      void main(){
+        vec2 c = vUv - 0.5;
+        float r2 = dot(c, c);
+        vec2 off = c * r2 * 0.012;
+        vec3 col = vec3(
+          texture2D(tDiffuse, vUv + off).r,
+          texture2D(tDiffuse, vUv).g,
+          texture2D(tDiffuse, vUv - off).b
+        );
+        float l = dot(col, vec3(0.299, 0.587, 0.114));
+        col = mix(vec3(l), col, 1.08);
+        col += vec3(-0.012, 0.0, 0.02) * (1.0 - l);
+        col *= mix(1.0, 0.52, smoothstep(0.12, 0.62, r2));
+        float g = fract(sin(dot(vUv * vec2(1280.0, 720.0) + uTime * 60.0, vec2(12.9898, 78.233))) * 43758.5453);
+        col += (g - 0.5) * 0.028;
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+
   let composer: EffectComposer | null = null;
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.36, 0.42, 0.7);
+  const draw = () => {
+    if (composer) composer.render();
+    else renderer.render(scene, camera);
+  };
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.46, 0.55, 0.82);
   function setupComposer() {
-    composer = new EffectComposer(renderer);
+    // Multisampled HDR target: the composer bypasses the canvas's own MSAA,
+    // and the cut-out cards rely on alpha-to-coverage for clean edges.
+    const target = new THREE.WebGLRenderTarget(1, 1, { samples: lite ? 0 : 4, type: THREE.HalfFloatType });
+    composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
+    composer.addPass(gradePass);
   }
   setupComposer();
 
@@ -190,8 +307,6 @@ export function createGame(canvas: HTMLCanvasElement) {
   let slateT = 0;
   let reelOn = false;
   let alleyPlayed = false;
-  const facePos = new THREE.Vector3();
-  const faceLook = new THREE.Vector3();
   const LINES = [
     "Nights alive. We own the streets. No retreat.",
     "Outlaw hustle. Cash rules. Break the noose.",
@@ -312,6 +427,19 @@ export function createGame(canvas: HTMLCanvasElement) {
     setSteer: (v) => {
       steerOverride = v;
     },
+    warp: (x, z, yaw, inCar = false, chapter) => {
+      sim.player.x = x;
+      sim.player.z = z;
+      sim.player.yaw = yaw;
+      sim.player.speed = 0;
+      sim.player.inCar = inCar;
+      if (inCar) {
+        sim.player.carX = x;
+        sim.player.carZ = z;
+        sim.player.carYaw = yaw;
+      }
+      if (chapter !== undefined) sim.chapter = chapter;
+    },
   };
 
   function syncHud() {
@@ -388,12 +516,12 @@ export function createGame(canvas: HTMLCanvasElement) {
     const hfx = -Math.sin(sim.player.yaw);
     const hfz = -Math.cos(sim.player.yaw);
     heroFill.position.set(sim.player.x + hfx * 1.15, 2.05, sim.player.z + hfz * 1.15);
-    heroFill.intensity = sim.player.inCar ? 0 : 6.4;
+    heroFill.intensity = sim.player.inCar ? 0 : 4.2;
     heroRim.position.set(sim.player.x - hfx * 1.35, 1.85, sim.player.z - hfz * 1.35);
-    heroRim.intensity = sim.player.inCar ? 0 : 7.5;
+    heroRim.intensity = sim.player.inCar ? 0 : 6;
     faceKey.position.set(sim.player.x + hfx * 1.6, 2.15, sim.player.z + hfz * 1.6);
     faceKey.target.position.set(sim.player.x, 1.55, sim.player.z);
-    faceKey.intensity = sim.player.inCar ? 0 : 10;
+    faceKey.intensity = sim.player.inCar ? 0 : 6;
 
     const dx = sim.player.x - sim.player.carX;
     const dz = sim.player.z - sim.player.carZ;
@@ -405,6 +533,7 @@ export function createGame(canvas: HTMLCanvasElement) {
     if (doorR) doorR.rotation.y = -tesla.userData.door * 1.18;
     if (doorL) doorL.rotation.y = tesla.userData.door * 1.18;
 
+    setPlayerMesh(sim.lead);
     playerMesh.visible = !sim.player.inCar;
     playerMesh.position.set(sim.player.x, 0, sim.player.z);
     playerMesh.rotation.y = sim.player.yaw;
@@ -419,8 +548,15 @@ export function createGame(canvas: HTMLCanvasElement) {
 
     for (let i = 0; i < sim.npcs.length; i++) {
       const n = sim.npcs[i]!;
-      const m = npcMeshes[i];
+      let m = npcMeshes[i];
       if (!m) continue;
+      const standIn = standIns[i];
+      if (standIn) {
+        const swapped = (n.kind === "rapper" && sim.lead === "voice") || (n.kind === "beard" && sim.lead === "quiet");
+        m.visible = !swapped;
+        standIn.visible = swapped;
+        if (swapped) m = standIn;
+      }
       m.position.set(n.x, 0, n.z);
       m.rotation.y = n.yaw;
       animatePerson(m, t + i * 0.3, n.speed, n.mode);
@@ -440,21 +576,27 @@ export function createGame(canvas: HTMLCanvasElement) {
     world.clubLights[1]!.intensity = 14 + (1 - pulse) * 10;
 
     const pos = rainGeo.attributes.position as THREE.BufferAttribute;
+    const cx = camera.position.x;
+    const cz = camera.position.z;
     for (let i = 0; i < rainCount; i++) {
-      let y = pos.getY(i) - 18 * dt;
-      let x = pos.getX(i);
-      let z = pos.getZ(i);
-      if (y < 0 || inClub(x, z)) {
-        x = -22 + Math.random() * 68;
-        y = 8 + Math.random() * 10;
-        z = -24 + Math.random() * 72;
-        if (inClub(x, z)) {
-          x = 30 + Math.random() * 12;
-        }
-      }
-      pos.setXYZ(i, x, y, z);
+      const o = i * 4;
+      let y = rainSeed[o + 1]! - rainSeed[o + 3]! * dt;
+      if (y < 0) y += RAIN_TOP;
+      rainSeed[o + 1] = y;
+      // wrap each streak into the box around the camera
+      const x = cx + ((((rainSeed[o]! - cx) % (2 * RAIN_R)) + 3 * RAIN_R) % (2 * RAIN_R)) - RAIN_R;
+      const z = cz + ((((rainSeed[o + 2]! - cz) % (2 * RAIN_R)) + 3 * RAIN_R) % (2 * RAIN_R)) - RAIN_R;
+      const hide = inClub(x, z) ? -50 : 0;
+      const len = rainSeed[o + 3]! * 0.026;
+      pos.setXYZ(i * 2, x, y + hide, z);
+      pos.setXYZ(i * 2 + 1, x + len * 0.16, y + len + hide, z + len * 0.05);
     }
     pos.needsUpdate = true;
+
+    moon.target.position.set(sim.player.x, 0, sim.player.z);
+    moon.position.copy(moon.target.position).add(MOON_OFFSET);
+    world.update(t, dt, sim.player.x, sim.player.z);
+    gradePass.uniforms.uTime!.value = t % 100;
   }
 
   function poseTitle(t: number) {
@@ -465,10 +607,12 @@ export function createGame(canvas: HTMLCanvasElement) {
     const doorL = tesla.getObjectByName("doorL");
     if (doorR) doorR.rotation.y = -1.18;
     if (doorL) doorL.rotation.y = 0;
-    headL.intensity = 8;
-    headR.intensity = 8;
-    heroFill.position.set(3.05, 1.9, 4.55);
-    heroFill.intensity = 7.2;
+    // low beams on the title so the glare does not swallow the lead
+    headL.intensity = 2;
+    headR.intensity = 2;
+    heroFill.position.set(3.9, 2.3, 6.2);
+    heroFill.intensity = 3;
+    setPlayerMesh(useGameStore.getState().lead);
     playerMesh.visible = true;
     playerMesh.position.set(3.12, 0, 4.62);
     playerMesh.rotation.y = 0.82;
@@ -477,10 +621,7 @@ export function createGame(canvas: HTMLCanvasElement) {
   }
 
   function presentLive(root: THREE.Object3D, yaw: number, forceFront: boolean) {
-    if (!root.userData.live) {
-      presentFace(root);
-      return;
-    }
+    if (!root.userData.live) return;
     const dx = camera.position.x - root.position.x;
     const dz = camera.position.z - root.position.z;
     const faceYaw = Math.atan2(dx, dz);
@@ -500,22 +641,6 @@ export function createGame(canvas: HTMLCanvasElement) {
     }
   }
 
-  function presentFace(root: THREE.Object3D) {
-    const face = root.getObjectByName("face");
-    if (!face) return;
-    const yaw = root.rotation.y;
-    const fx = -Math.sin(yaw);
-    const fz = -Math.cos(yaw);
-    face.getWorldPosition(facePos);
-    const dx = camera.position.x - facePos.x;
-    const dz = camera.position.z - facePos.z;
-    const show = fx * dx + fz * dz > 0.4;
-    face.visible = show;
-    if (!show) return;
-    faceLook.set(facePos.x * 2 - camera.position.x, facePos.y, facePos.z * 2 - camera.position.z);
-    face.lookAt(faceLook);
-  }
-
   function cameraTitle(dt: number) {
     fly += dt * 0.06;
     const tx = -1.15 + Math.sin(fly) * 0.35;
@@ -523,7 +648,8 @@ export function createGame(canvas: HTMLCanvasElement) {
     camX = lerp(camX, tx, 1 - Math.exp(-1.05 * dt));
     camY = lerp(camY, 1.48, 1 - Math.exp(-1.05 * dt));
     camZ = lerp(camZ, tz, 1 - Math.exp(-1.05 * dt));
-    lookX = lerp(lookX, 4.6, 1 - Math.exp(-1.2 * dt));
+    // aim right of the kerb so the lead and the car sit left of the title card
+    lookX = lerp(lookX, 10.5, 1 - Math.exp(-1.2 * dt));
     lookY = lerp(lookY, 1.42, 1 - Math.exp(-1.2 * dt));
     lookZ = lerp(lookZ, 2.6, 1 - Math.exp(-1.2 * dt));
     camera.position.set(camX, camY, camZ);
@@ -596,7 +722,7 @@ export function createGame(canvas: HTMLCanvasElement) {
       cameraTitle(visualDt);
       syncMeshes(t, visualDt, lastActions);
       poseTitle(t);
-      composer ? composer.render() : renderer.render(scene, camera);
+      draw();
       return;
     }
 
@@ -604,7 +730,7 @@ export function createGame(canvas: HTMLCanvasElement) {
       acc = 0;
       const actions = input.sample();
       if (actions.enter || actions.fire) skipReel();
-      composer ? composer.render() : renderer.render(scene, camera);
+      draw();
       return;
     }
 
@@ -617,7 +743,7 @@ export function createGame(canvas: HTMLCanvasElement) {
         const m = audio.toggleMute();
         useGameStore.getState().patch({ muted: m });
       }
-      composer ? composer.render() : renderer.render(scene, camera);
+      draw();
       return;
     }
 
@@ -666,7 +792,7 @@ export function createGame(canvas: HTMLCanvasElement) {
       hudT = 0;
       syncHud();
     }
-    composer ? composer.render() : renderer.render(scene, camera);
+    draw();
   }
 
   renderer.setAnimationLoop(tick);

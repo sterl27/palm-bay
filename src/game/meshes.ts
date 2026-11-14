@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { loadLive } from "./textures";
+import { loadLive, makeGlow } from "./textures";
 
 const mats = new Map<string, THREE.MeshStandardMaterial>();
 
@@ -19,7 +19,7 @@ function mat(
 function tag(mesh: THREE.Object3D, cast = true, receive = true) {
   mesh.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.isMesh) {
+    if (m.isMesh && !m.userData.noShadow) {
       m.castShadow = cast;
       m.receiveShadow = receive;
     }
@@ -27,324 +27,469 @@ function tag(mesh: THREE.Object3D, cast = true, receive = true) {
   return mesh;
 }
 
-const GEO = {
-  head: new THREE.SphereGeometry(0.142, 18, 14),
-  neck: new THREE.CylinderGeometry(0.048, 0.058, 0.09, 10),
-  torso: new THREE.CapsuleGeometry(0.168, 0.3, 5, 10),
-  hips: new THREE.CapsuleGeometry(0.155, 0.1, 4, 10),
-  upperArm: new THREE.CapsuleGeometry(0.048, 0.18, 4, 8),
-  lowerArm: new THREE.CapsuleGeometry(0.042, 0.16, 4, 8),
-  hand: new THREE.SphereGeometry(0.042, 8, 8),
-  thigh: new THREE.CapsuleGeometry(0.07, 0.3, 4, 8),
-  calf: new THREE.CapsuleGeometry(0.054, 0.28, 4, 8),
-  shoe: new THREE.BoxGeometry(0.11, 0.07, 0.26),
-  heel: new THREE.BoxGeometry(0.08, 0.12, 0.08),
-  eye: new THREE.SphereGeometry(0.018, 8, 8),
-  iris: new THREE.SphereGeometry(0.011, 8, 8),
-  ear: new THREE.SphereGeometry(0.028, 8, 8),
-};
+let glowTex: THREE.Texture | null = null;
+function glow() {
+  glowTex ??= makeGlow();
+  return glowTex;
+}
 
-const LIVE_H = 1.88;
+/** Soft dark pool that grounds a figure or a car on the wet street. */
+function contactShadow(w: number, d: number, opacity: number) {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, d),
+    new THREE.MeshBasicMaterial({
+      map: glow(),
+      color: 0x000000,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      fog: false,
+    }),
+  );
+  m.rotation.x = -Math.PI / 2;
+  m.position.y = 0.022;
+  m.renderOrder = 1;
+  m.userData.noShadow = true;
+  m.name = "shadow";
+  return m;
+}
+
+/* ------------------------------------------------------------------ */
+/* People — live-action cut-outs on gently curved cards                */
+/* ------------------------------------------------------------------ */
+
+type CardSpec = { url: string; aspect: number; height: number };
 
 const CARDS = {
-  heroFront: { url: "/avatars/live/hero-front.png", aspect: 249 / 477 },
-  heroBack: { url: "/avatars/live/hero-back.png", aspect: 219 / 365 },
-  rapper: { url: "/avatars/live/rapper.png", aspect: 367 / 686 },
-  beard: { url: "/avatars/live/beard.png", aspect: 213 / 578 },
+  heroFront: { url: "/avatars/live/hero-front.png", aspect: 473 / 1500, height: 1.86 },
+  heroBack: { url: "/avatars/live/hero-back.png", aspect: 473 / 1500, height: 1.86 },
+  rapper: { url: "/avatars/live/rapper.png", aspect: 918 / 1500, height: 1.8 },
+  beard: { url: "/avatars/live/beard.png", aspect: 373 / 1500, height: 1.88 },
   line: [
-    { url: "/avatars/live/line-0.png", aspect: 242 / 862 },
-    { url: "/avatars/live/line-1.png", aspect: 233 / 874 },
-    { url: "/avatars/live/line-2.png", aspect: 226 / 829 },
-    { url: "/avatars/live/line-3.png", aspect: 241 / 816 },
+    { url: "/avatars/live/line-0.png", aspect: 458 / 1699, height: 1.76 },
+    { url: "/avatars/live/line-1.png", aspect: 449 / 1734, height: 1.78 },
+    { url: "/avatars/live/line-2.png", aspect: 437 / 1640, height: 1.74 },
+    { url: "/avatars/live/line-3.png", aspect: 465 / 1618, height: 1.72 },
   ],
-};
+} satisfies Record<string, CardSpec | CardSpec[]>;
 
-function makeCard(spec: { url: string; aspect: number }, name: string) {
-  const w = LIVE_H * spec.aspect;
-  const geo = new THREE.PlaneGeometry(w, LIVE_H, 8, 10);
+type StepUniforms = { uStepL: { value: number }; uStepR: { value: number } };
+
+function makeCard(spec: CardSpec, name: string, tint = 1) {
+  const h = spec.height;
+  const w = h * spec.aspect;
+  const geo = new THREE.PlaneGeometry(w, h, 10, 18);
   const pos = geo.attributes.position;
+  // Bow the card so scene lights wrap around the figure instead of
+  // hitting one flat plane.
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    pos.setZ(i, -x * x * 0.42);
+    const x = pos.getX(i) / (w * 0.5);
+    pos.setZ(i, -x * x * w * 0.2);
   }
   geo.computeVertexNormals();
   const tex = loadLive(spec.url);
-  const mesh = new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({
-      map: tex,
-      emissiveMap: tex,
-      emissive: new THREE.Color(0xffffff),
-      emissiveIntensity: 0.62,
-      roughness: 0.68,
-      metalness: 0,
-      transparent: true,
-      alphaTest: 0.32,
-      depthWrite: true,
-    }),
-  );
+  const steps: StepUniforms = { uStepL: { value: 0 }, uStepR: { value: 0 } };
+  const material = new THREE.MeshStandardMaterial({
+    map: tex,
+    emissiveMap: tex,
+    emissive: new THREE.Color(0xffffff),
+    emissiveIntensity: 0.34,
+    color: new THREE.Color(tint, tint, tint),
+    roughness: 0.78,
+    metalness: 0,
+    envMapIntensity: 0.25,
+    alphaTest: 0.42,
+    alphaToCoverage: true,
+    side: THREE.DoubleSide,
+  });
+  // Paper-puppet walk: lift each half of the lower body in turn.
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uStepL = steps.uStepL;
+    shader.uniforms.uStepR = steps.uStepR;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nuniform float uStepL;\nuniform float uStepR;")
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+        float legW = 1.0 - smoothstep(0.0, 0.46, uv.y);
+        float lift = mix(uStepL, uStepR, step(0.5, uv.x));
+        transformed.y += lift * legW;
+        transformed.x += (uStepL - uStepR) * 0.35 * legW;`,
+      );
+  };
+  const mesh = new THREE.Mesh(geo, material);
   mesh.name = name;
-  mesh.position.y = LIVE_H * 0.5;
-  mesh.castShadow = false;
+  mesh.position.y = h * 0.5;
+  mesh.castShadow = true;
   mesh.receiveShadow = false;
+  mesh.customDepthMaterial = new THREE.MeshDepthMaterial({
+    depthPacking: THREE.RGBADepthPacking,
+    map: tex,
+    alphaTest: 0.42,
+    side: THREE.DoubleSide,
+  });
+  mesh.userData.steps = steps;
   return mesh;
-}
-
-function makePortrait(kind: "hero" | "rapper" | "beard" | "club", seed = 0) {
-  const g = new THREE.Group();
-  g.userData.live = true;
-  g.userData.kind = kind;
-  if (kind === "hero") {
-    g.add(makeCard(CARDS.heroFront, "front"));
-    g.add(makeCard(CARDS.heroBack, "back"));
-  } else if (kind === "rapper") {
-    g.add(makeCard(CARDS.rapper, "front"));
-  } else if (kind === "beard") {
-    g.add(makeCard(CARDS.beard, "front"));
-  } else {
-    const card = makeCard(CARDS.line[Math.abs(seed) % CARDS.line.length]!, "front");
-    g.add(card);
-    g.scale.setScalar(0.94 + (Math.abs(seed) % 4) * 0.018);
-  }
-  const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.26, 14),
-    new THREE.MeshBasicMaterial({
-      color: 0x000000,
-      transparent: true,
-      opacity: 0.42,
-      depthWrite: false,
-    }),
-  );
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.015;
-  shadow.name = "shadow";
-  g.add(shadow);
-  return g;
 }
 
 export type PersonKind = "hero" | "club" | "rapper" | "beard" | "street";
 
-function makeCrowd(kind: "club" | "street", seed: number) {
+export function makePerson(kind: PersonKind, seed = 0) {
   const g = new THREE.Group();
-  const r = ((seed * 17) % 100) / 100;
-  const skin = r > 0.55 ? 0xd4b08c : r > 0.3 ? 0xc49a72 : 0x6a4634;
-  const shirt = kind === "club"
-    ? ([0x121214, 0x1a1218, 0x0e0e12, 0x8a1828][seed % 4] as number)
-    : ([0x8a1c28, 0x1c2430, 0x2a2a32, 0xeee6dc][seed % 4] as number);
-  const hair = [0xf2e6c8, 0x1a1210, 0x4a2018, 0xc8c4c0, 0x2a1a10][seed % 5] as number;
-  const skinM = mat(skin, { roughness: 0.62 });
-  const shirtM = mat(shirt, { roughness: 0.55 });
-  const scale = kind === "club" ? 0.95 + (seed % 5) * 0.012 : 0.98;
-  g.scale.setScalar(scale);
-
-  const torso = new THREE.Mesh(GEO.torso, shirtM);
-  torso.position.y = 1.18;
-  torso.name = "torso";
-  g.add(torso);
-
-  if (kind === "club") {
-    const dress = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.155, 0.62, 8), shirtM);
-    dress.position.y = 0.96;
-    g.add(dress);
-    const heel = new THREE.Mesh(GEO.heel, mat(0x141416, { roughness: 0.4 }));
-    heel.position.set(0.07, 0.06, 0.04);
-    g.add(heel);
-    const heel2 = heel.clone();
-    heel2.position.x = -0.07;
-    g.add(heel2);
-  } else {
-    const legs = new THREE.Mesh(GEO.hips, mat(0x1c2430, { roughness: 0.72 }));
-    legs.position.y = 0.62;
-    legs.scale.set(1, 2.4, 1);
-    g.add(legs);
-  }
-
-  const head = new THREE.Mesh(GEO.head, skinM);
-  head.position.y = 1.62;
-  head.name = "head";
-  g.add(head);
-  const hairM = new THREE.Mesh(
-    new THREE.SphereGeometry(0.16, 8, 6),
-    mat(hair, { roughness: 0.48 }),
-  );
-  hairM.position.set(0, 1.68, -0.02);
-  hairM.scale.set(1.15, 0.9, 1.1);
-  g.add(hairM);
-
-  for (const side of [-1, 1] as const) {
-    const a = new THREE.Group();
-    a.name = side < 0 ? "armL" : "armR";
-    a.position.set(side * 0.24, 1.36, 0);
-    const limb = new THREE.Mesh(GEO.upperArm, kind === "club" ? skinM : shirtM);
-    limb.position.y = -0.18;
-    limb.scale.set(1, 1.6, 1);
-    a.add(limb);
-    g.add(a);
-  }
-
+  const cards: THREE.Mesh[] = [];
+  g.userData.live = true;
   g.userData.kind = kind;
-  tag(g, false, true);
+  g.userData.phase = (Math.abs(seed) * 1.618) % (Math.PI * 2);
+  let footprint = 0.62;
+  if (kind === "hero") {
+    cards.push(makeCard(CARDS.heroFront, "front"), makeCard(CARDS.heroBack, "back"));
+  } else if (kind === "rapper") {
+    cards.push(makeCard(CARDS.rapper, "front"));
+    footprint = 1.0;
+  } else if (kind === "beard") {
+    cards.push(makeCard(CARDS.beard, "front"));
+  } else {
+    const n = Math.abs(seed);
+    // Street walkers sit further from the lights; the line is dressed to be seen.
+    const tint = kind === "street" ? 0.7 : 0.9 + (n % 3) * 0.05;
+    const card = makeCard(CARDS.line[(n * 7 + (n >> 2)) % CARDS.line.length]!, "front", tint);
+    if (n % 2 === 1) card.scale.x = -1;
+    cards.push(card);
+    g.scale.setScalar(0.96 + (n % 5) * 0.014);
+  }
+  for (const c of cards) g.add(c);
+  g.userData.cards = cards;
+  g.add(contactShadow(footprint * 1.5, footprint, 0.62));
   return g;
 }
 
-export function makePerson(kind: PersonKind, seed = 0) {
-  if (kind === "street") return makeCrowd("street", seed);
-  return makePortrait(kind, seed);
+/* ------------------------------------------------------------------ */
+/* Cars — extruded side profiles instead of stacked boxes              */
+/* ------------------------------------------------------------------ */
+
+/** Extrude a side profile (x = nose-forward, y = up) across the car's width. */
+function extrudeAcross(shape: THREE.Shape, width: number, bevel: number, segments = 4) {
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: width - bevel * 2,
+    bevelEnabled: true,
+    bevelThickness: bevel,
+    bevelSize: bevel * 0.7,
+    bevelOffset: -bevel * 0.7,
+    bevelSegments: segments,
+    curveSegments: 20,
+  });
+  geo.translate(0, 0, -(width - bevel * 2) / 2);
+  // shape +x is the nose; the game drives toward -z
+  geo.rotateY(Math.PI / 2);
+  geo.computeVertexNormals();
+  return geo;
 }
 
-export function makeTesla() {
+type CarStyle = {
+  length: number;
+  width: number;
+  wheelbase: number;
+  wheelR: number;
+  hood: number;
+  deck: number;
+  roof: number;
+  fastback: boolean;
+};
+
+function bodyShape(c: CarStyle) {
+  const L = c.length / 2;
+  const ax = c.wheelbase / 2;
+  const arch = c.wheelR + 0.07;
+  const s = new THREE.Shape();
+  s.moveTo(-L + 0.04, 0.34);
+  s.lineTo(-L + 0.12, 0.25);
+  s.lineTo(-ax - arch, 0.23);
+  s.absarc(-ax, c.wheelR, arch, Math.PI, 0, true);
+  s.lineTo(ax - arch, 0.23);
+  s.absarc(ax, c.wheelR, arch, Math.PI, 0, true);
+  s.lineTo(L - 0.14, 0.24);
+  s.quadraticCurveTo(L + 0.02, 0.3, L, 0.5);
+  s.quadraticCurveTo(L - 0.02, c.hood - 0.08, L - 0.3, c.hood - 0.03);
+  s.quadraticCurveTo(L * 0.62, c.hood + 0.1, L * 0.42, c.hood + 0.17);
+  s.lineTo(-L * 0.6, c.deck + 0.02);
+  s.quadraticCurveTo(-L + 0.2, c.deck, -L + 0.03, c.deck - 0.16);
+  s.lineTo(-L + 0.04, 0.34);
+  return s;
+}
+
+function cabinShape(c: CarStyle) {
+  const L = c.length / 2;
+  const base = c.hood + 0.12;
+  const s = new THREE.Shape();
+  s.moveTo(L * 0.5, base);
+  s.bezierCurveTo(L * 0.32, c.roof - 0.16, L * 0.2, c.roof, -0.05, c.roof + 0.01);
+  if (c.fastback) {
+    s.bezierCurveTo(-L * 0.36, c.roof, -L * 0.56, c.roof - 0.2, -L * 0.8, c.deck - 0.02);
+  } else {
+    s.bezierCurveTo(-L * 0.34, c.roof, -L * 0.44, c.roof - 0.06, -L * 0.6, c.deck - 0.02);
+  }
+  s.lineTo(L * 0.5, base);
+  return s;
+}
+
+function makeWheel(r: number, rimMat: THREE.Material) {
+  const w = new THREE.Group();
+  const tyre = new THREE.Mesh(
+    new THREE.CylinderGeometry(r, r, 0.25, 28).rotateZ(Math.PI / 2),
+    mat(0x0b0b0c, { roughness: 0.86 }),
+  );
+  w.add(tyre);
+  const rim = new THREE.Mesh(
+    new THREE.CylinderGeometry(r * 0.68, r * 0.68, 0.262, 24).rotateZ(Math.PI / 2),
+    rimMat,
+  );
+  w.add(rim);
+  const hub = new THREE.Mesh(
+    new THREE.CylinderGeometry(r * 0.56, r * 0.56, 0.268, 24).rotateZ(Math.PI / 2),
+    mat(0x090909, { roughness: 0.5, metalness: 0.4 }),
+  );
+  w.add(hub);
+  for (let i = 0; i < 5; i++) {
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.274, r * 1.2, r * 0.17), rimMat);
+    spoke.rotation.x = (i / 5) * Math.PI;
+    w.add(spoke);
+  }
+  return w;
+}
+
+function makeCar(c: CarStyle, paint: THREE.Material, opts: { glow: number; chrome: boolean }) {
   const g = new THREE.Group();
-  const paint = new THREE.MeshPhysicalMaterial({
-    color: 0x07080c,
+  const glass = new THREE.MeshPhysicalMaterial({
+    color: 0x05070b,
+    // not mirror-smooth: point lights on perfect glass bloom into flares
     roughness: 0.16,
-    metalness: 0.9,
+    metalness: 0,
     clearcoat: 1,
-    clearcoatRoughness: 0.08,
+    clearcoatRoughness: 0.14,
+    envMapIntensity: 2.2,
   });
-  const chrome = mat(0xc8cdd4, { roughness: 0.2, metalness: 0.92 });
-  const glass = mat(0x1a222c, {
-    roughness: 0.06,
-    metalness: 0.62,
-    transparent: true,
-    opacity: 0.48,
-  });
+  const chrome = mat(0xc8cdd4, { roughness: 0.16, metalness: 1 });
+  const L = c.length / 2;
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.48, 4.58), paint);
-  body.position.y = 0.6;
-  g.add(body);
+  g.add(new THREE.Mesh(extrudeAcross(bodyShape(c), c.width, 0.11), paint));
+  g.add(new THREE.Mesh(extrudeAcross(cabinShape(c), c.width - 0.2, 0.16, 5), glass));
 
-  const rocker = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.16, 4.2), paint);
-  rocker.position.y = 0.34;
-  g.add(rocker);
-
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.28, 0.55), paint);
-  nose.position.set(0, 0.52, -2.2);
-  g.add(nose);
-
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.74, 0.46, 2.18), paint);
-  cabin.position.set(0, 1.06, 0.12);
-  g.add(cabin);
-
-  const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.58, 0.42, 0.06), glass);
-  windshield.position.set(0, 1.08, -0.94);
-  windshield.rotation.x = -0.58;
-  g.add(windshield);
-
-  const rearGlass = new THREE.Mesh(new THREE.BoxGeometry(1.58, 0.36, 0.06), glass);
-  rearGlass.position.set(0, 1.06, 1.14);
-  rearGlass.rotation.x = 0.48;
-  g.add(rearGlass);
-
-  for (const s of [-1, 1] as const) {
-    const sideGlass = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.32, 1.7), glass);
-    sideGlass.position.set(s * 0.88, 1.06, 0.08);
-    g.add(sideGlass);
+  if (opts.chrome) {
+    for (const s of [-1, 1] as const) {
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.018, c.length * 0.5), chrome);
+      trim.position.set(s * (c.width / 2 - 0.035), c.hood + 0.2, 0.15);
+      g.add(trim);
+    }
   }
 
-  const trim = new THREE.Mesh(new THREE.BoxGeometry(1.92, 0.025, 4.52), chrome);
-  trim.position.y = 0.86;
-  g.add(trim);
+  const under = new THREE.Mesh(
+    new THREE.BoxGeometry(c.width - 0.2, 0.1, c.length - 0.5),
+    mat(0x050506, { roughness: 0.9 }),
+  );
+  under.position.y = 0.24;
+  g.add(under);
+
+  const hl = mat(0xfff4d2, { emissive: 0xfff2c4, emissiveIntensity: 2.6 * opts.glow });
+  const tl = mat(0xff2a2a, { emissive: 0xff1a1a, emissiveIntensity: 1.5 * opts.glow });
+  for (const s of [-1, 1] as const) {
+    const h = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.05, 0.05), hl);
+    h.position.set(s * (c.width / 2 - 0.36), c.hood - 0.1, -L + 0.045);
+    h.rotation.y = s * -0.22;
+    g.add(h);
+    const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.12), paint);
+    mirror.position.set(s * (c.width / 2 + 0.03), c.hood + 0.24, -L * 0.36);
+    g.add(mirror);
+  }
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(c.width - 0.34, 0.045, 0.04), tl);
+  bar.position.set(0, c.deck - 0.1, L - 0.02);
+  g.add(bar);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.11, 0.02), mat(0xdedcd4, { roughness: 0.6 }));
+  plate.position.set(0, 0.46, L);
+  g.add(plate);
+
+  const rimMat = mat(0xaab2be, { roughness: 0.22, metalness: 0.95 });
+  const ax = c.wheelbase / 2;
+  const hubs: [number, number][] = [
+    [-1, -ax],
+    [1, -ax],
+    [-1, ax],
+    [1, ax],
+  ];
+  hubs.forEach(([sx, z], i) => {
+    const w = makeWheel(c.wheelR, rimMat);
+    w.position.set(sx * (c.width / 2 - 0.15), c.wheelR, z);
+    w.name = `wheel${i}`;
+    g.add(w);
+  });
+
+  tag(g, true, true);
+  g.add(contactShadow(c.width * 1.5, c.length * 1.25, 0.8));
+  return g;
+}
+
+const TESLA_STYLE: CarStyle = {
+  length: 4.72,
+  width: 1.92,
+  wheelbase: 2.9,
+  wheelR: 0.36,
+  hood: 0.76,
+  deck: 0.98,
+  roof: 1.43,
+  fastback: true,
+};
+
+const SEDAN_STYLE: CarStyle = {
+  length: 4.4,
+  width: 1.84,
+  wheelbase: 2.66,
+  wheelR: 0.33,
+  hood: 0.8,
+  deck: 0.94,
+  roof: 1.4,
+  fastback: false,
+};
+
+export function makeTesla() {
+  const paint = new THREE.MeshPhysicalMaterial({
+    color: 0x0b0d12,
+    roughness: 0.24,
+    metalness: 0.8,
+    clearcoat: 1,
+    clearcoatRoughness: 0.14,
+    envMapIntensity: 3.2,
+  });
+  const g = makeCar(TESLA_STYLE, paint, { glow: 1, chrome: true });
+  const chrome = mat(0xc8cdd4, { roughness: 0.16, metalness: 1 });
 
   function door(side: -1 | 1) {
     const d = new THREE.Group();
     d.name = side > 0 ? "doorR" : "doorL";
-    d.position.set(side * 0.95, 0.7, -0.35);
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.52, 1.15), paint);
-    panel.position.set(0, 0, 0.55);
+    d.position.set(side * 0.955, 0.66, -0.42);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.5, 1.12), paint);
+    panel.position.set(0, 0, 0.56);
     d.add(panel);
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.16), chrome);
-    handle.position.set(side * 0.05, 0.06, 0.72);
+    const pane = new THREE.Mesh(
+      new THREE.BoxGeometry(0.02, 0.3, 0.98),
+      mat(0x0a0e14, { roughness: 0.45, metalness: 0, transparent: true, opacity: 0.55, envMapIntensity: 0.4 }),
+    );
+    pane.position.set(-side * 0.02, 0.4, 0.6);
+    d.add(pane);
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.022, 0.17), chrome);
+    handle.position.set(side * 0.024, 0.14, 0.86);
     d.add(handle);
     return d;
   }
-  g.add(door(-1));
-  g.add(door(1));
-
-  const hl = mat(0xfff4d2, { emissive: 0xfff2c4, emissiveIntensity: 2.1 });
-  const tl = mat(0xff2a2a, { emissive: 0xff1a1a, emissiveIntensity: 0.85 });
-  for (const s of [-1, 1] as const) {
-    const h = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.08, 0.06), hl);
-    h.position.set(s * 0.62, 0.6, -2.32);
-    g.add(h);
-    const t = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.06), tl);
-    t.position.set(s * 0.62, 0.62, 2.32);
-    g.add(t);
-    const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.16), paint);
-    mirror.position.set(s * 1.02, 0.98, -0.7);
-    g.add(mirror);
-  }
-
-  const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 16);
-  wheelGeo.rotateZ(Math.PI / 2);
-  const wheelMat = mat(0x111111, { roughness: 0.82 });
-  const rimMat = mat(0xb8bec8, { roughness: 0.28, metalness: 0.8 });
-  const hubs: [number, number, number][] = [
-    [-0.88, 0.34, -1.42],
-    [0.88, 0.34, -1.42],
-    [-0.88, 0.34, 1.42],
-    [0.88, 0.34, 1.42],
-  ];
-  hubs.forEach((p, i) => {
-    const w = new THREE.Mesh(wheelGeo, wheelMat);
-    w.position.set(p[0], p[1], p[2]);
-    w.name = `wheel${i}`;
-    g.add(w);
-    const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.26, 12), rimMat);
-    rim.rotation.z = Math.PI / 2;
-    rim.position.copy(w.position);
-    g.add(rim);
-  });
+  g.add(tag(door(-1)));
+  g.add(tag(door(1)));
 
   g.userData.door = 0;
-  tag(g, true, true);
   return g;
 }
 
 export function makeSedan(color: number) {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(1.85, 0.5, 4.3),
-    mat(color, { roughness: 0.32, metalness: 0.5 }),
-  );
-  body.position.y = 0.6;
-  g.add(body);
-  const cabin = new THREE.Mesh(
-    new THREE.BoxGeometry(1.7, 0.46, 2),
-    mat(0x15181e, { roughness: 0.28, metalness: 0.25 }),
-  );
-  cabin.position.set(0, 1.04, 0.1);
-  g.add(cabin);
-  const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.24, 10);
-  wheelGeo.rotateZ(Math.PI / 2);
-  const wheelMat = mat(0x111111, { roughness: 0.9 });
-  for (const p of [
-    [-0.82, 0.32, -1.3],
-    [0.82, 0.32, -1.3],
-    [-0.82, 0.32, 1.3],
-    [0.82, 0.32, 1.3],
-  ] as [number, number, number][]) {
-    const w = new THREE.Mesh(wheelGeo, wheelMat);
-    w.position.set(p[0], p[1], p[2]);
-    g.add(w);
-  }
-  tag(g, false, true);
-  return g;
+  const paint = new THREE.MeshPhysicalMaterial({
+    color,
+    roughness: 0.42,
+    metalness: 0.6,
+    clearcoat: 0.6,
+    clearcoatRoughness: 0.3,
+    envMapIntensity: 1.6,
+  });
+  return makeCar(SEDAN_STYLE, paint, { glow: 0.03, chrome: false });
 }
 
-export function makeLamp() {
+/** Additive cone of light in the wet air. */
+export function lightCone(radius: number, height: number, color: number, opacity: number) {
+  const geo = new THREE.ConeGeometry(radius, height, 24, 1, true);
+  geo.translate(0, -height / 2, 0);
+  const cone = new THREE.Mesh(
+    geo,
+    new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity } },
+      vertexShader: `
+        varying float vH;
+        varying vec3 vN;
+        varying vec3 vV;
+        void main(){
+          vH = uv.y;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vN = normalize(normalMatrix * normal);
+          vV = normalize(-mv.xyz);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform float uOpacity;
+        varying float vH;
+        varying vec3 vN;
+        varying vec3 vV;
+        void main(){
+          float facing = pow(abs(dot(normalize(vN), normalize(vV))), 1.6);
+          float fall = smoothstep(0.0, 0.25, vH) * (0.25 + 0.75 * vH);
+          gl_FragColor = vec4(uColor, uOpacity * facing * fall);
+        }`,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      fog: false,
+    }),
+  );
+  cone.userData.noShadow = true;
+  cone.renderOrder = 3;
+  return cone;
+}
+
+/** Light pooled on the ground under a fixture. */
+export function lightPool(size: number, color: number, opacity: number) {
+  const pool = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size),
+    new THREE.MeshBasicMaterial({
+      map: glow(),
+      color,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+    }),
+  );
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.y = 0.03;
+  pool.renderOrder = 2;
+  pool.userData.noShadow = true;
+  return pool;
+}
+
+/** Street lamp; `reach` is the signed x-offset of the arm toward the road. */
+export function makeLamp(reach = 1.5) {
   const g = new THREE.Group();
-  const pole = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.08, 5.2, 8),
-    mat(0x2a2c30, { roughness: 0.55, metalness: 0.45 }),
-  );
-  pole.position.y = 2.6;
+  const steel = mat(0x23252a, { roughness: 0.45, metalness: 0.7 });
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, 0.5, 10), steel);
+  base.position.y = 0.25;
+  g.add(base);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.085, 5.4, 10), steel);
+  pole.position.y = 2.7;
   g.add(pole);
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.18, 10, 8),
-    mat(0xffe6b0, { emissive: 0xffd088, emissiveIntensity: 2.2 }),
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, Math.abs(reach) + 0.2, 8), steel);
+  arm.rotation.z = Math.PI / 2 - Math.sign(reach) * 0.12;
+  arm.position.set(reach / 2, 5.42, 0);
+  g.add(arm);
+  const hood = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.09, 0.26), steel);
+  hood.position.set(reach, 5.46, 0);
+  g.add(hood);
+  const lens = new THREE.Mesh(
+    new THREE.BoxGeometry(0.46, 0.04, 0.18),
+    mat(0xffe6b0, { emissive: 0xffc878, emissiveIntensity: 5 }),
   );
-  head.position.y = 5.15;
-  g.add(head);
+  lens.position.set(reach, 5.4, 0);
+  g.add(lens);
+  const cone = lightCone(2.9, 5.35, 0xffc98a, 0.06);
+  cone.position.set(reach, 5.38, 0);
+  g.add(cone);
+  const pool = lightPool(8.5, 0xffb870, 0.2);
+  pool.position.x = reach;
+  g.add(pool);
   return g;
 }
 
@@ -361,7 +506,19 @@ export function makeDumpster() {
     mat(0x1e3826, { roughness: 0.55, metalness: 0.3 }),
   );
   lid.position.y = 1.14;
+  lid.rotation.x = -0.05;
   g.add(lid);
+  const rib = mat(0x1a3020, { roughness: 0.6, metalness: 0.35 });
+  for (const x of [-0.5, 0, 0.5]) {
+    const r = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.95, 0.94), rib);
+    r.position.set(x, 0.55, 0);
+    g.add(r);
+  }
+  for (const x of [-0.72, 0.72]) {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.06, 10).rotateZ(Math.PI / 2), mat(0x0c0c0c, { roughness: 0.8 }));
+    w.position.set(x, 0.07, 0.36);
+    g.add(w);
+  }
   tag(g, true, true);
   return g;
 }
@@ -380,6 +537,12 @@ export function makePost() {
   );
   ball.position.y = 0.98;
   g.add(ball);
+  const foot = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.17, 0.035, 16),
+    mat(0xc8cdd4, { roughness: 0.22, metalness: 0.88 }),
+  );
+  foot.position.y = 0.02;
+  g.add(foot);
   return g;
 }
 
@@ -389,103 +552,51 @@ export function animatePerson(
   speed: number,
   mode: "walk" | "dance" | "idle" | "rap" | "own",
 ) {
-  if (mesh.userData.live) {
-    const bob =
-      mode === "walk"
-        ? Math.abs(Math.sin(t * 8)) * 0.04
-        : mode === "dance"
-          ? Math.abs(Math.sin(t * 5 + mesh.id)) * 0.055
-          : mode === "rap"
-            ? Math.abs(Math.sin(t * 7)) * 0.025
-            : mode === "own"
-              ? Math.sin(t * 2.2) * 0.012
-              : 0;
-    mesh.position.y = bob;
-    const sway =
-      mode === "walk"
-        ? Math.sin(t * 8) * 0.05
-        : mode === "dance"
-          ? Math.sin(t * 3.2) * 0.09
-          : mode === "rap"
-            ? Math.sin(t * 6) * 0.07
-            : 0;
-    const front = mesh.getObjectByName("front");
-    const back = mesh.getObjectByName("back");
-    if (front) front.rotation.z = sway;
-    if (back) back.rotation.z = sway;
-    return;
-  }
-  const swing = mode === "walk" ? Math.sin(t * 8) * Math.min(0.7, 0.2 + speed * 0.08) : 0;
-  const armL = mesh.getObjectByName("armL");
-  const armR = mesh.getObjectByName("armR");
-  const legL = mesh.getObjectByName("legL");
-  const legR = mesh.getObjectByName("legR");
-  const torso = mesh.getObjectByName("torso");
-  const head = mesh.getObjectByName("head");
-
-  if (mode === "own") {
-    mesh.position.y = Math.sin(t * 2) * 0.012;
-    if (armL) {
-      armL.rotation.x = -1.12;
-      armL.rotation.z = 0.78;
-    }
-    if (armR) {
-      armR.rotation.x = -1.12;
-      armR.rotation.z = -0.78;
-    }
-    if (torso) torso.rotation.y = 0;
-    if (head) head.rotation.x = 0.18;
-    if (legL) legL.rotation.x = 0;
-    if (legR) legR.rotation.x = 0;
-    return;
-  }
-
-  if (mode === "dance") {
-    const bob = Math.abs(Math.sin(t * 5 + mesh.id)) * 0.06;
-    mesh.position.y = bob;
-    if (armL) {
-      armL.rotation.x = -1.2 + Math.sin(t * 6) * 0.4;
-      armL.rotation.z = 0.15;
-    }
-    if (armR) {
-      armR.rotation.x = -1.1 + Math.cos(t * 6) * 0.4;
-      armR.rotation.z = -0.15;
-    }
-    if (torso) torso.rotation.y = Math.sin(t * 3) * 0.12;
-    if (head) head.rotation.x = 0;
-    return;
-  }
-
-  if (mode === "rap") {
-    if (armL) {
-      armL.rotation.x = -0.85 + Math.sin(t * 8) * 0.55;
-      armL.rotation.z = 0.45;
-    }
-    if (armR) {
-      armR.rotation.x = -0.45 + Math.cos(t * 7) * 0.38;
-      armR.rotation.z = -0.28;
-    }
-    if (torso) torso.rotation.y = Math.sin(t * 4) * 0.1;
-    if (head) head.rotation.x = -0.05;
-    mesh.position.y = Math.abs(Math.sin(t * 8)) * 0.02;
-    return;
-  }
+  const ph = (mesh.userData.phase as number | undefined) ?? 0;
+  const cards = (mesh.userData.cards as THREE.Mesh[] | undefined) ?? [];
+  let bob = 0;
+  let sway = 0;
+  let stepL = 0;
+  let stepR = 0;
+  let breathe = 1 + Math.sin(t * 1.7 + ph) * 0.005;
 
   if (mode === "walk") {
-    mesh.position.y = Math.abs(Math.sin(t * 8)) * 0.035;
+    const pace = 6.4 + Math.min(4, speed) * 0.75;
+    const gait = Math.sin(t * pace);
+    const reach = 0.035 + Math.min(1, speed / 6) * 0.05;
+    stepL = Math.max(0, gait) * reach;
+    stepR = Math.max(0, -gait) * reach;
+    bob = Math.abs(Math.cos(t * pace)) * 0.022;
+    sway = gait * 0.028;
+  } else if (mode === "dance") {
+    const beat = t * 4.2 + ph;
+    bob = Math.abs(Math.sin(beat)) * 0.05;
+    sway = Math.sin(beat * 0.5) * 0.085;
+    stepL = Math.max(0, Math.sin(beat)) * 0.045;
+    stepR = Math.max(0, -Math.sin(beat)) * 0.045;
+    breathe = 1 + Math.sin(beat * 2) * 0.008;
+  } else if (mode === "rap") {
+    bob = Math.abs(Math.sin(t * 6.6)) * 0.03;
+    sway = Math.sin(t * 3.3) * 0.045 + Math.sin(t * 9.1) * 0.012;
+    breathe = 1 + Math.sin(t * 6.6) * 0.01;
+  } else if (mode === "own") {
+    sway = Math.sin(t * 1.1) * 0.01;
+    breathe = 1.012 + Math.sin(t * 2.2) * 0.006;
   } else {
-    mesh.position.y = 0;
+    // idle: weight shifts from hip to hip, never a frozen cut-out
+    sway = Math.sin(t * 0.62 + ph) * 0.014 + Math.sin(t * 1.9 + ph * 2) * 0.004;
   }
-  if (armL) {
-    armL.rotation.x = mode === "idle" ? Math.sin(t * 1.4) * 0.05 : -swing;
-    armL.rotation.z = 0.06;
+
+  mesh.position.y = bob;
+  for (const c of cards) {
+    c.rotation.z = sway;
+    c.scale.y = breathe;
+    const steps = c.userData.steps as StepUniforms | undefined;
+    if (steps) {
+      steps.uStepL.value = stepL;
+      steps.uStepR.value = stepR;
+    }
   }
-  if (armR) {
-    armR.rotation.x = mode === "idle" ? Math.cos(t * 1.4) * 0.05 : swing;
-    armR.rotation.z = -0.06;
-  }
-  if (legL) legL.rotation.x = swing * 0.95;
-  if (legR) legR.rotation.x = -swing * 0.95;
-  if (torso) torso.rotation.y = 0;
-  if (head) head.rotation.x = 0;
+  const shadow = mesh.getObjectByName("shadow");
+  if (shadow) shadow.position.y = 0.022 - bob;
 }
