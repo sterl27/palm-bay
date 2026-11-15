@@ -3,7 +3,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { CHAPTERS, FIXED, clamp, inAlley, inClub, lerp } from "./constants";
+import { CHAPTERS, FIXED, ZONES, clamp, inAlley, inClub, lerp } from "./constants";
 import { createInput, type Actions } from "./input";
 import { createAudio } from "./audio";
 import { animatePerson, makePerson, makeTesla } from "./meshes";
@@ -25,6 +25,9 @@ declare global {
     };
   }
 }
+
+const CAM_PAD = 0.35;
+const CAM_MIN_CUTOUT = 1.1;
 
 export function createGame(canvas: HTMLCanvasElement) {
   const renderer = new THREE.WebGLRenderer({
@@ -535,6 +538,60 @@ export function createGame(canvas: HTMLCanvasElement) {
     camera.lookAt(lookX, lookY, lookZ);
   }
 
+  // Pull the desired camera point back toward the player so it never ends up inside a wall or column.
+  function clearShot(px: number, pz: number, cx: number, cz: number) {
+    const dx = cx - px;
+    const dz = cz - pz;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.01) return 1;
+    const steps = Math.ceil(len / 0.15);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const x = px + dx * t;
+      const z = pz + dz * t;
+      for (const b of world.colliders) {
+        if (x > b.minX - CAM_PAD && x < b.maxX + CAM_PAD && z > b.minZ - CAM_PAD && z < b.maxZ + CAM_PAD) {
+          return Math.max(0, (i - 1) / steps);
+        }
+      }
+    }
+    return 1;
+  }
+
+  // Fade video cut-outs that sit right in front of the lens or between the lens and the player.
+  function fadeCutouts(dt: number, active: boolean) {
+    const px = sim.player.x;
+    const pz = sim.player.z;
+    const vx = px - camera.position.x;
+    const vz = pz - camera.position.z;
+    const vl2 = vx * vx + vz * vz || 1;
+    const k = 1 - Math.exp(-10 * dt);
+    for (const m of npcMeshes) {
+      if (!m.userData.live) continue;
+      let want = 1;
+      if (active) {
+        const ox = m.position.x - camera.position.x;
+        const oz = m.position.z - camera.position.z;
+        const dCam = Math.hypot(ox, oz);
+        const t = (ox * vx + oz * vz) / vl2;
+        const perp = Math.hypot(ox - vx * t, oz - vz * t);
+        if (dCam < CAM_MIN_CUTOUT) want = 0;
+        else if (t > 0 && t < 0.92 && perp < 0.55) want = 0.28;
+      }
+      const cur = (m.userData.fade as number | undefined) ?? 1;
+      const next = Math.abs(want - cur) < 0.01 ? want : lerp(cur, want, k);
+      if (next === cur) continue;
+      m.userData.fade = next;
+      m.traverse((o) => {
+        const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+        if (!mat || !mat.map) return;
+        mat.opacity = next;
+        mat.alphaTest = Math.max(0.02, 0.32 * next);
+        mat.depthWrite = next > 0.95;
+      });
+    }
+  }
+
   function cameraPlay(dt: number) {
     const fx = -Math.sin(sim.player.yaw);
     const fz = -Math.cos(sim.player.yaw);
@@ -544,6 +601,7 @@ export function createGame(canvas: HTMLCanvasElement) {
     const inRoom = inClub(sim.player.x, sim.player.z);
     const own = sim.ended || (!inCar && inRoom && lastActions.handbrake);
     const alleyShot = !inCar && inAlley(sim.player.x, sim.player.z);
+    const interior = !inCar && (inRoom || alleyShot);
 
     let dist = inCar ? 8.2 : 4.35;
     let height = inCar ? 2.7 : 1.78;
@@ -552,35 +610,70 @@ export function createGame(canvas: HTMLCanvasElement) {
     let along = -1;
 
     if (own) {
-      dist = 2.08;
-      height = 1.52;
-      lookH = 1.5;
-      side = 0.08;
+      // Low hero angle from the front, but far enough back to see the room around him.
+      dist = 3.7;
+      height = 2.15;
+      lookH = 1.4;
+      side = 0.45;
       along = 1;
     } else if (alleyShot) {
-      dist = 2.4;
-      height = 1.48;
-      lookH = 1.5;
-      side = 1.2;
+      // Over-the-shoulder standoff, high enough to clear the two cut-outs.
+      dist = 4.6;
+      height = 2.55;
+      lookH = 1.35;
+      side = 2.2;
+    } else if (inRoom) {
+      // Club: up over the crowd's heads so the floor reads as a space.
+      dist = 5.2;
+      height = 3.0;
+      lookH = 1.05;
+      side = 0.5;
     }
 
     const lookAhead = Math.abs(sim.player.speed) * 0.08;
     const shake = sim.trauma * sim.trauma;
     const sx = (Math.random() - 0.5) * shake * 1.1;
     const sy = (Math.random() - 0.5) * shake * 0.6;
-    const desiredX = sim.player.x + fx * dist * along + rx * side + sx;
+    let desiredX = sim.player.x + fx * dist * along + rx * side + sx;
     const desiredY = height + sy;
-    const desiredZ = sim.player.z + fz * dist * along + rz * side;
+    let desiredZ = sim.player.z + fz * dist * along + rz * side;
+    if (interior) {
+      const f = Math.max(clearShot(sim.player.x, sim.player.z, desiredX, desiredZ), 1.4 / Math.max(dist, 1.4));
+      desiredX = sim.player.x + (desiredX - sim.player.x) * f;
+      desiredZ = sim.player.z + (desiredZ - sim.player.z) * f;
+    }
     const k = 1 - Math.exp(-(own ? 3.4 : inCar ? 5.2 : 8.2) * dt);
     camX = lerp(camX, desiredX, k);
     camY = lerp(camY, desiredY, k);
     camZ = lerp(camZ, desiredZ, k);
-    lookX = lerp(lookX, sim.player.x + fx * lookAhead, k);
+    if (interior) {
+      // Keep a minimum distance so a camera swing orbits around the player instead of passing through the cut-out.
+      const minD = Math.min(3.0, Math.hypot(desiredX - sim.player.x, desiredZ - sim.player.z));
+      const ox = camX - sim.player.x;
+      const oz = camZ - sim.player.z;
+      const od = Math.hypot(ox, oz);
+      if (od < minD) {
+        const ux = od > 0.01 ? ox / od : desiredX - sim.player.x;
+        const uz = od > 0.01 ? oz / od : desiredZ - sim.player.z;
+        const ul = Math.hypot(ux, uz) || 1;
+        camX = sim.player.x + (ux / ul) * minD;
+        camZ = sim.player.z + (uz / ul) * minD;
+      }
+    }
+    let targetX = sim.player.x + fx * lookAhead;
+    let targetZ = sim.player.z + fz * lookAhead;
+    if (alleyShot && !sim.ended) {
+      // Frame the standoff: aim between the player and the two men.
+      targetX = lerp(targetX, ZONES.standoff.x, 0.35);
+      targetZ = lerp(targetZ, ZONES.standoff.z, 0.35);
+    }
+    lookX = lerp(lookX, targetX, k);
     lookY = lerp(lookY, lookH, k);
-    lookZ = lerp(lookZ, sim.player.z + fz * lookAhead, k);
+    lookZ = lerp(lookZ, targetZ, k);
     camera.position.set(camX, camY, camZ);
     camera.lookAt(lookX, lookY, lookZ);
-    const fov = own || sim.ended ? 32 : alleyShot ? 38 : 50 + clamp(Math.abs(sim.player.speed) / 40, 0, 1) * 8;
+    fadeCutouts(dt, interior || own);
+    const fov = own || sim.ended ? 40 : alleyShot ? 44 : inRoom ? 52 : 50 + clamp(Math.abs(sim.player.speed) / 40, 0, 1) * 8;
     if (Math.abs(camera.fov - fov) > 0.2) {
       camera.fov = lerp(camera.fov, fov, 0.08);
       camera.updateProjectionMatrix();
