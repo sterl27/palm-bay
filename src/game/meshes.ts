@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadLive } from "./textures";
 
 const mats = new Map<string, THREE.MeshStandardMaterial>();
@@ -187,8 +188,224 @@ function makeCrowd(kind: "club" | "street", seed: number) {
   return g;
 }
 
+const DON_URL = "/models/don-sterleone.glb";
+const DON_ARMS = [
+  "LeftShoulder",
+  "LeftArm",
+  "LeftForeArm",
+  "LeftHand",
+  "RightShoulder",
+  "RightArm",
+  "RightForeArm",
+  "RightHand",
+];
+
+type DonRig = {
+  ready: true;
+  mixer: THREE.AnimationMixer;
+  actions: Record<"idle" | "walk" | "run", THREE.AnimationAction>;
+  current: "idle" | "walk" | "run";
+  lastT: number | null;
+};
+
+function dressDon(model: THREE.Object3D) {
+  const frame = new THREE.MeshStandardMaterial({
+    color: 0x0c0c0e,
+    metalness: 0.84,
+    roughness: 0.2,
+  });
+  const lens = new THREE.MeshStandardMaterial({
+    color: 0x05060a,
+    metalness: 0.55,
+    roughness: 0.04,
+  });
+  const head = model.getObjectByName("Head");
+  if (head) {
+    // Head bone: +X is stage-left, +Y points out of the face, +Z points down.
+    const glasses = new THREE.Group();
+    glasses.name = "sunglasses";
+    // Head bone: +Y up, +Z out of the face, +X to the character's left.
+    glasses.position.set(0, 10.1, 11.2);
+    const lensL = new THREE.Mesh(new THREE.BoxGeometry(5.3, 2.9, 0.4), lens);
+    lensL.position.x = -3.05;
+    const lensR = lensL.clone();
+    lensR.position.x = 3.05;
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(11.6, 0.32, 0.45), frame);
+    brow.position.y = 1.5;
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.32, 0.4), frame);
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(11.2, 0.28, 0.4), frame);
+    lower.position.y = -1.45;
+    glasses.add(lensL, lensR, brow, bridge, lower);
+    for (const side of [-1, 1]) {
+      const temple = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 6.2), frame);
+      temple.position.set(side * 5.55, 0.85, -2.8);
+      glasses.add(temple);
+    }
+    head.add(glasses);
+  }
+
+  const leather = new THREE.MeshStandardMaterial({
+    color: 0x070708,
+    metalness: 0.42,
+    roughness: 0.28,
+  });
+  for (const name of ["LeftFoot", "RightFoot"]) {
+    const foot = model.getObjectByName(name);
+    if (!foot) continue;
+    // Foot bone: +Y runs to the toe, +Z points at the ground.
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(8.6, 24, 5.4), leather);
+    shoe.name = `${name}-shoe`;
+    shoe.position.set(0, 9.5, 2.4);
+    foot.add(shoe);
+  }
+
+  const spine = model.getObjectByName("Spine");
+  if (spine) {
+    const cloth = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.68 });
+    const square = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.7, 3.1), cloth);
+    square.name = "pocketSquare";
+    square.position.set(8.5, 1.2, 7.4);
+    spine.add(square);
+    const gold = new THREE.MeshStandardMaterial({
+      color: 0xc6a15a,
+      metalness: 0.92,
+      roughness: 0.28,
+    });
+    const chain = new THREE.Group();
+    chain.name = "watchChain";
+    for (let i = 0; i < 6; i++) {
+      const link = new THREE.Mesh(new THREE.SphereGeometry(0.38, 8, 6), gold);
+      link.position.set(3.2 + i * 0.95, -0.4, 5.2 + i * 0.55);
+      chain.add(link);
+    }
+    spine.add(chain);
+  }
+}
+
+function buildDonIdle(model: THREE.Object3D, walk: THREE.AnimationClip) {
+  const rest = new Map<string, { q: THREE.Quaternion; p: THREE.Vector3 }>();
+  model.traverse((o) => {
+    if ((o as THREE.Bone).isBone) {
+      rest.set(o.name, { q: o.quaternion.clone(), p: o.position.clone() });
+    }
+  });
+  const probe = new THREE.AnimationMixer(model);
+  const probeAction = probe.clipAction(walk);
+  probeAction.play();
+  probe.setTime(0.55);
+  const arms = new Map<string, { q: THREE.Quaternion; p: THREE.Vector3 }>();
+  for (const name of DON_ARMS) {
+    const bone = model.getObjectByName(name);
+    if (!bone) continue;
+    arms.set(name, { q: bone.quaternion.clone(), p: bone.position.clone() });
+  }
+  probe.stopAllAction();
+  for (const [name, pose] of rest) {
+    const bone = model.getObjectByName(name);
+    if (!bone) continue;
+    bone.quaternion.copy(pose.q);
+    bone.position.copy(pose.p);
+  }
+
+  const names = new Set(walk.tracks.map((track) => track.name.split(".")[0]!));
+  const times = [0, 0.7, 1.4, 2.1, 2.8];
+  const tracks: THREE.KeyframeTrack[] = [];
+  for (const name of names) {
+    const bone = model.getObjectByName(name);
+    const base = arms.get(name) ?? rest.get(name);
+    if (!bone || !base) continue;
+    const qs: number[] = [];
+    const ps: number[] = [];
+    for (let i = 0; i < times.length; i++) {
+      const q = base.q.clone();
+      if (name === "Spine" || name === "Spine01") {
+        q.multiply(
+          new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(1, 0, 0),
+            Math.sin((i / (times.length - 1)) * Math.PI * 2) * 0.012,
+          ),
+        );
+      }
+      qs.push(q.x, q.y, q.z, q.w);
+      ps.push(base.p.x, base.p.y, base.p.z);
+    }
+    tracks.push(new THREE.QuaternionKeyframeTrack(`${name}.quaternion`, times.slice(), qs));
+    tracks.push(new THREE.VectorKeyframeTrack(`${name}.position`, times.slice(), ps));
+  }
+  return new THREE.AnimationClip("idle", times[times.length - 1]!, tracks);
+}
+
+function makeDon() {
+  const root = new THREE.Group();
+  root.name = "don";
+  root.userData.don = { ready: false };
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.32, 16),
+    new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    }),
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.02;
+  shadow.name = "shadow";
+  root.add(shadow);
+
+  const loader = new GLTFLoader();
+  loader.load(
+    DON_URL,
+    (gltf) => {
+      const actor = new THREE.Group();
+      actor.name = "donActor";
+      // glTF faces +Z. The night walks toward -Z.
+      actor.rotation.y = Math.PI;
+      actor.scale.setScalar(1.88 / 1.8);
+      const model = gltf.scene;
+      model.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.frustumCulled = false;
+        const material = mesh.material as THREE.MeshStandardMaterial;
+        if (material?.isMeshStandardMaterial) {
+          material.roughness = Math.max(material.roughness, 0.62);
+          material.metalness = Math.min(material.metalness, 0.12);
+        }
+      });
+      dressDon(model);
+      actor.add(model);
+      root.add(actor);
+
+      const walk = gltf.animations.find((clip) => clip.name === "walk");
+      const run = gltf.animations.find((clip) => clip.name === "run");
+      if (!walk || !run) return;
+      const mixer = new THREE.AnimationMixer(model);
+      const actions = {
+        idle: mixer.clipAction(buildDonIdle(model, walk)),
+        walk: mixer.clipAction(walk),
+        run: mixer.clipAction(run),
+      };
+      actions.idle.play();
+      const rig: DonRig = { ready: true, mixer, actions, current: "idle", lastT: null };
+      root.userData.don = rig;
+    },
+    undefined,
+    () => {
+      const card = makePortrait("hero");
+      root.add(card);
+      root.userData.live = true;
+      root.userData.don = undefined;
+    },
+  );
+  return root;
+}
+
 export function makePerson(kind: PersonKind, seed = 0) {
   if (kind === "street") return makeCrowd("street", seed);
+  if (kind === "hero") return makeDon();
   return makePortrait(kind, seed);
 }
 
@@ -383,12 +600,48 @@ export function makePost() {
   return g;
 }
 
+function stepDon(
+  mesh: THREE.Group,
+  t: number,
+  speed: number,
+  mode: "walk" | "dance" | "idle" | "rap" | "own",
+) {
+  const rig = mesh.userData.don as DonRig | { ready: false } | undefined;
+  if (!rig?.ready) return;
+  const next: DonRig["current"] = mode === "walk" ? (speed > 6.2 ? "run" : "walk") : "idle";
+  if (rig.current !== next) {
+    const from = rig.actions[rig.current];
+    const to = rig.actions[next];
+    // setEffectiveWeight(0) writes action.weight, and fadeIn multiplies by that
+    // weight, so a zeroed action can never fade back up.
+    to.enabled = true;
+    to.setEffectiveWeight(1);
+    to.reset().fadeIn(0.2).play();
+    from.fadeOut(0.2);
+    rig.current = next;
+  }
+  const clip = rig.actions[next];
+  if (next === "walk") clip.timeScale = 0.72 + Math.min(speed, 8) * 0.16;
+  else if (next === "run") clip.timeScale = 0.9 + Math.min(speed, 9) * 0.08;
+  else clip.timeScale = 1;
+  const prev = rig.lastT;
+  rig.lastT = t;
+  let dt = prev == null ? 1 / 60 : t - prev;
+  if (!(dt > 0)) dt = 1 / 60;
+  else if (dt > 0.05) dt = 0.05;
+  rig.mixer.update(dt);
+}
+
 export function animatePerson(
   mesh: THREE.Group,
   t: number,
   speed: number,
   mode: "walk" | "dance" | "idle" | "rap" | "own",
 ) {
+  if (mesh.userData.don) {
+    stepDon(mesh, t, speed, mode);
+    return;
+  }
   if (mesh.userData.live) {
     const bob =
       mode === "walk"

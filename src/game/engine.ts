@@ -388,12 +388,12 @@ export function createGame(canvas: HTMLCanvasElement) {
     const hfx = -Math.sin(sim.player.yaw);
     const hfz = -Math.cos(sim.player.yaw);
     heroFill.position.set(sim.player.x + hfx * 1.15, 2.05, sim.player.z + hfz * 1.15);
-    heroFill.intensity = sim.player.inCar ? 0 : 6.4;
+    heroFill.intensity = sim.player.inCar ? 0 : 2.6;
     heroRim.position.set(sim.player.x - hfx * 1.35, 1.85, sim.player.z - hfz * 1.35);
-    heroRim.intensity = sim.player.inCar ? 0 : 7.5;
+    heroRim.intensity = sim.player.inCar ? 0 : 1.6;
     faceKey.position.set(sim.player.x + hfx * 1.6, 2.15, sim.player.z + hfz * 1.6);
     faceKey.target.position.set(sim.player.x, 1.55, sim.player.z);
-    faceKey.intensity = sim.player.inCar ? 0 : 10;
+    faceKey.intensity = sim.player.inCar ? 0 : 2.4;
 
     const dx = sim.player.x - sim.player.carX;
     const dz = sim.player.z - sim.player.carZ;
@@ -468,7 +468,7 @@ export function createGame(canvas: HTMLCanvasElement) {
     headL.intensity = 8;
     headR.intensity = 8;
     heroFill.position.set(3.05, 1.9, 4.55);
-    heroFill.intensity = 7.2;
+    heroFill.intensity = 2.8;
     playerMesh.visible = true;
     playerMesh.position.set(3.12, 0, 4.62);
     playerMesh.rotation.y = 0.82;
