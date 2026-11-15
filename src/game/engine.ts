@@ -83,13 +83,18 @@ export function createGame(canvas: HTMLCanvasElement) {
       vertexShader: `varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
       fragmentShader: `
         varying vec3 vP;
+        float hash(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
         void main(){
-          float h = normalize(vP).y;
-          vec3 zenith = vec3(0.03, 0.04, 0.09);
-          vec3 mid = vec3(0.08, 0.06, 0.12);
-          vec3 horizon = vec3(0.22, 0.08, 0.12);
-          vec3 col = mix(horizon, mid, smoothstep(-0.05, 0.25, h));
-          col = mix(col, zenith, smoothstep(0.2, 0.85, h));
+          vec3 d = normalize(vP);
+          float h = d.y;
+          vec3 black = vec3(0.001, 0.0012, 0.003);
+          vec3 navy = vec3(0.007, 0.011, 0.03);
+          vec3 col = mix(navy, black, smoothstep(0.08, 0.7, h));
+          float glow = exp(-max(h + 0.02, 0.0) * 14.0) * smoothstep(-0.12, 0.0, h);
+          col += vec3(0.07, 0.042, 0.026) * glow;
+          vec3 cell = floor(d * 420.0);
+          float star = step(0.9992, hash(cell)) * smoothstep(0.12, 0.4, h);
+          col += vec3(0.75, 0.8, 0.95) * star * (0.35 + 0.65 * hash(cell + 7.0));
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -617,11 +622,11 @@ export function createGame(canvas: HTMLCanvasElement) {
       side = 0.45;
       along = 1;
     } else if (alleyShot) {
-      // Over-the-shoulder standoff, high enough to clear the two cut-outs.
+      // Over the left shoulder so the rapper stands clear beside the player, not behind him.
       dist = 4.6;
-      height = 2.55;
-      lookH = 1.35;
-      side = 2.2;
+      height = 2.4;
+      lookH = 1.3;
+      side = -2.2;
     } else if (inRoom) {
       // Club: up over the crowd's heads so the floor reads as a space.
       dist = 5.2;
@@ -672,7 +677,7 @@ export function createGame(canvas: HTMLCanvasElement) {
     lookZ = lerp(lookZ, targetZ, k);
     camera.position.set(camX, camY, camZ);
     camera.lookAt(lookX, lookY, lookZ);
-    fadeCutouts(dt, interior || own);
+    fadeCutouts(dt, !inCar);
     const fov = own || sim.ended ? 40 : alleyShot ? 44 : inRoom ? 52 : 50 + clamp(Math.abs(sim.player.speed) / 40, 0, 1) * 8;
     if (Math.abs(camera.fov - fov) > 0.2) {
       camera.fov = lerp(camera.fov, fov, 0.08);

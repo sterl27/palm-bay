@@ -47,10 +47,10 @@ const GEO = {
 const LIVE_H = 1.88;
 
 const CARDS = {
-  heroFront: { url: "/avatars/live/hero-front.png", aspect: 249 / 477 },
-  heroBack: { url: "/avatars/live/hero-back.png", aspect: 219 / 365 },
-  rapper: { url: "/avatars/live/rapper.png", aspect: 367 / 686 },
-  beard: { url: "/avatars/live/beard.png", aspect: 213 / 578 },
+  heroFront: { url: "/avatars/live/hero-front.png", aspect: 162 / 596 },
+  heroBack: { url: "/avatars/live/hero-front.png", aspect: 162 / 596 },
+  rapper: { url: "/avatars/live/rapper.png", aspect: 266 / 700 },
+  beard: { url: "/avatars/live/beard.png", aspect: 258 / 620 },
   line: [
     { url: "/avatars/live/line-0.png", aspect: 242 / 862 },
     { url: "/avatars/live/line-1.png", aspect: 233 / 874 },

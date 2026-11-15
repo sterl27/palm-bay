@@ -137,7 +137,7 @@ export function createSim(): Sim {
   });
   npcs.push({
     x: 37.4,
-    z: 3.35,
+    z: 3.8,
     yaw: -Math.PI * 0.85,
     kind: "beard",
     seed: 2,
