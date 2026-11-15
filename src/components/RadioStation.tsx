@@ -16,7 +16,9 @@ interface SCWidget {
   next(): void;
   prev(): void;
   setVolume(v: number): void;
-  getCurrentSound(cb: (sound: { title: string; artwork_url: string | null } | null) => void): void;
+  getCurrentSound(
+    cb: (sound: { title: string; artwork_url: string | null } | null) => void,
+  ): void;
 }
 
 export function RadioStation() {
@@ -26,7 +28,10 @@ export function RadioStation() {
   const widgetRef = useRef<SCWidget | null>(null);
   const [on, setOn] = useState(false);
   const [volume, setVolume] = useState(70);
-  const [nowPlaying, setNowPlaying] = useState<{ title: string; artwork: string } | null>(null);
+  const [nowPlaying, setNowPlaying] = useState<{
+    title: string;
+    artwork: string;
+  } | null>(null);
   const [progress, setProgress] = useState(0);
   const [popup, setPopup] = useState(false);
   // M mutes the whole game, radio included.
@@ -36,7 +41,8 @@ export function RadioStation() {
 
   // Load SoundCloud Widget API
   useEffect(() => {
-    if (document.querySelector('script[src*="soundcloud.com/player/api.js"]')) return;
+    if (document.querySelector('script[src*="soundcloud.com/player/api.js"]'))
+      return;
     const s = document.createElement("script");
     s.src = "https://w.soundcloud.com/player/api.js";
     document.head.appendChild(s);
@@ -113,6 +119,12 @@ export function RadioStation() {
   }, []);
 
   const playing = on && inVehicle;
+  const prev = () => widgetRef.current?.prev();
+  const next = () => widgetRef.current?.next();
+  const volDown = () => setVolume((v) => Math.max(0, v - 10));
+  const volUp = () => setVolume((v) => Math.min(100, v + 10));
+  const btn =
+    "grid size-7 shrink-0 place-items-center rounded border border-border bg-ink/80 text-[11px] text-foam/90 backdrop-blur-sm select-none active:bg-foam/20";
 
   return (
     <div
@@ -121,7 +133,7 @@ export function RadioStation() {
         "bottom-44 md:bottom-[16rem]",
         "transition-all duration-500",
         popup ? "w-52" : "w-36",
-        !on ? "opacity-0 pointer-events-none" : "opacity-100",
+        inVehicle ? "opacity-100" : "opacity-0 pointer-events-none",
       ].join(" ")}
     >
       {/* Hidden SoundCloud widget iframe */}
@@ -132,16 +144,53 @@ export function RadioStation() {
         src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/s73rl&auto_play=false&hide_related=true&show_comments=false&show_user=false&show_reposts=false&show_teaser=false&visual=false"
       />
 
-      <div className="rounded-md border border-border bg-ink/80 p-2.5 backdrop-blur-sm">
-        <p className="mb-1.5 text-[9px] tracking-[0.3em] text-muted uppercase">S73RL FM 107.3</p>
+      {/* Power toggle — always reachable in the car, works on touch */}
+      <button
+        type="button"
+        aria-label={on ? "Radio off" : "Radio on"}
+        aria-pressed={on}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={() => setOn((v) => !v)}
+        className={[
+          "mb-1 flex items-center gap-1.5 rounded-md border px-2 py-1 text-[9px] tracking-[0.3em] uppercase backdrop-blur-sm",
+          on
+            ? "border-foam/60 bg-ink/80 text-foam"
+            : "border-border bg-ink/60 text-muted",
+        ].join(" ")}
+      >
+        <span
+          className={[
+            "size-1.5 rounded-full",
+            on ? "bg-foam" : "bg-muted/60",
+          ].join(" ")}
+        />
+        Radio {on ? "on" : "off"}
+      </button>
+
+      <div
+        className={[
+          "rounded-md border border-border bg-ink/80 p-2.5 backdrop-blur-sm transition-opacity duration-300",
+          on ? "opacity-100" : "opacity-0 pointer-events-none",
+        ].join(" ")}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <p className="mb-1.5 text-[9px] tracking-[0.3em] text-muted uppercase">
+          S73RL FM 107.3
+        </p>
         <div className="flex items-center gap-2">
           {nowPlaying?.artwork ? (
-            <img src={nowPlaying.artwork} alt="" className="size-8 shrink-0 rounded object-cover" />
+            <img
+              src={nowPlaying.artwork}
+              alt=""
+              className="size-8 shrink-0 rounded object-cover"
+            />
           ) : (
             <div className="size-8 shrink-0 rounded bg-surface" />
           )}
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[11px] font-medium text-foam">{nowPlaying?.title ?? "—"}</p>
+            <p className="truncate text-[11px] font-medium text-foam">
+              {nowPlaying?.title ?? "—"}
+            </p>
             <div className="mt-1 h-0.5 overflow-hidden rounded-full bg-border">
               <div
                 className="h-full bg-foam/70 transition-[width] duration-300"
@@ -150,6 +199,46 @@ export function RadioStation() {
             </div>
           </div>
           <LevelMeter playing={playing} />
+        </div>
+
+        {/* Transport + volume — mirrors , . - = keys */}
+        <div className="mt-2 flex items-center gap-1">
+          <button
+            type="button"
+            aria-label="Previous track"
+            className={btn}
+            onClick={prev}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            aria-label="Next track"
+            className={btn}
+            onClick={next}
+          >
+            ›
+          </button>
+          <div className="flex-1" />
+          <button
+            type="button"
+            aria-label="Volume down"
+            className={btn}
+            onClick={volDown}
+          >
+            −
+          </button>
+          <span className="w-6 text-center text-[9px] tabular-nums text-muted">
+            {volume}
+          </span>
+          <button
+            type="button"
+            aria-label="Volume up"
+            className={btn}
+            onClick={volUp}
+          >
+            +
+          </button>
         </div>
       </div>
     </div>
