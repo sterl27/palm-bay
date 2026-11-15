@@ -36,6 +36,8 @@ export type Actions = {
 
 export function createInput() {
   const keys = new Set<string>();
+  // Keys pressed since the last sample, so a tap shorter than one frame still counts.
+  const tapped = new Set<string>();
   let injected: string[] | null = null;
   let steerTouch = 0;
   let throttleTouch = 0;
@@ -56,12 +58,14 @@ export function createInput() {
     if (GAME_KEYS.has(e.code)) e.preventDefault();
     if (e.repeat) return;
     keys.add(e.code);
+    tapped.add(e.code);
   }
   function onKeyUp(e: KeyboardEvent) {
     keys.delete(e.code);
   }
   function clear() {
     keys.clear();
+    tapped.clear();
   }
 
   window.addEventListener("keydown", onKeyDown);
@@ -73,7 +77,7 @@ export function createInput() {
 
   function held(code: string) {
     if (injected) return injected.includes(code);
-    return keys.has(code);
+    return keys.has(code) || tapped.has(code);
   }
 
   function pollPad() {
@@ -149,6 +153,7 @@ export function createInput() {
     prev.handbrake = hbHeld;
     enterTap = false;
     handbrakeTap = false;
+    tapped.clear();
     return actions;
   }
 
