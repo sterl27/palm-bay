@@ -35,8 +35,8 @@ export function resolveCircle(x: number, z: number, r: number, boxes: AABB[]) {
     const b = boxes[i]!;
     const cx = x < b.minX ? b.minX : x > b.maxX ? b.maxX : x;
     const cz = z < b.minZ ? b.minZ : z > b.maxZ ? b.maxZ : z;
-    let dx = x - cx;
-    let dz = z - cz;
+    const dx = x - cx;
+    const dz = z - cz;
     const d2 = dx * dx + dz * dz;
     if (d2 < r * r) {
       if (d2 < 1e-8) {

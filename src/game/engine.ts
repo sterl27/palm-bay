@@ -7,7 +7,7 @@ import { CHAPTERS, FIXED, clamp, inAlley, inClub, lerp } from "./constants";
 import { createInput, type Actions } from "./input";
 import { createAudio } from "./audio";
 import { animatePerson, makePerson, makeTesla } from "./meshes";
-import { applyLead, beginNight, blipOf, createSim, objectiveOf, resetSim, stepSim, type Sim } from "./sim";
+import { applyLead, beatOf, beginNight, blipOf, createSim, objectiveOf, resetSim, stepSim, type Sim } from "./sim";
 import { useGameStore } from "./store";
 import { buildWorld } from "./world";
 
@@ -172,6 +172,10 @@ export function createGame(canvas: HTMLCanvasElement) {
     composer.addPass(new OutputPass());
   }
   setupComposer();
+  function render() {
+    if (composer) composer.render();
+    else renderer.render(scene, camera);
+  }
 
   let phase: "title" | "play" | "pause" | "win" | "fail" = "title";
   let acc = 0;
@@ -320,6 +324,7 @@ export function createGame(canvas: HTMLCanvasElement) {
     useGameStore.getState().patch({
       phase: sim.failed ? "fail" : sim.ended ? "win" : phase,
       chapter: sim.chapter,
+      beat: beatOf(sim),
       chapterTitle: ch.title,
       objective: objectiveOf(sim),
       prompt: sim.prompt,
@@ -596,7 +601,7 @@ export function createGame(canvas: HTMLCanvasElement) {
       cameraTitle(visualDt);
       syncMeshes(t, visualDt, lastActions);
       poseTitle(t);
-      composer ? composer.render() : renderer.render(scene, camera);
+      render();
       return;
     }
 
@@ -604,7 +609,7 @@ export function createGame(canvas: HTMLCanvasElement) {
       acc = 0;
       const actions = input.sample();
       if (actions.enter || actions.fire) skipReel();
-      composer ? composer.render() : renderer.render(scene, camera);
+      render();
       return;
     }
 
@@ -617,7 +622,7 @@ export function createGame(canvas: HTMLCanvasElement) {
         const m = audio.toggleMute();
         useGameStore.getState().patch({ muted: m });
       }
-      composer ? composer.render() : renderer.render(scene, camera);
+      render();
       return;
     }
 
@@ -666,7 +671,7 @@ export function createGame(canvas: HTMLCanvasElement) {
       hudT = 0;
       syncHud();
     }
-    composer ? composer.render() : renderer.render(scene, camera);
+    render();
   }
 
   renderer.setAnimationLoop(tick);

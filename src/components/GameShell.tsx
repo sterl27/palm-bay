@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pause, Volume2, VolumeX } from "lucide-react";
 import { Minimap } from "@/components/Minimap";
+import { PlayerManual } from "@/components/PlayerManual";
 import { RadioStation } from "@/components/RadioStation";
 import { BEATS, LEADS, type LeadId } from "@/game/constants";
 import { useGameStore } from "@/game/store";
@@ -9,7 +10,6 @@ export function GameShell() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const phase = useGameStore((s) => s.phase);
-  const bindings = useGameStore((s) => s.bindings);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -54,6 +54,7 @@ export function GameShell() {
 
 function TitleScreen({ ready }: { ready: boolean }) {
   const start = useGameStore((s) => s.bindings?.start);
+  const [manual, setManual] = useState(false);
   return (
     <div className="absolute inset-0 z-30 flex flex-col items-center justify-end px-6 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-10">
       <video
@@ -83,6 +84,13 @@ function TitleScreen({ ready }: { ready: boolean }) {
         >
           {ready ? "Enter the night" : "Loading"}
         </button>
+        <button
+          type="button"
+          onClick={() => setManual(true)}
+          className="mt-3 block w-full text-xs font-medium tracking-[0.24em] text-muted uppercase underline-offset-4 hover:text-foam hover:underline"
+        >
+          How to play
+        </button>
         <p className="mt-6 hidden text-[11px] leading-relaxed text-faint md:block">
           WASD drive or walk · F doors · Space own the room / hold the alley · Esc pause
         </p>
@@ -90,6 +98,7 @@ function TitleScreen({ ready }: { ready: boolean }) {
           Stick to drive · Door to step out · Hold to own the room and the alley
         </p>
       </div>
+      {manual ? <PlayerManual onClose={() => setManual(false)} /> : null}
     </div>
   );
 }
@@ -229,6 +238,7 @@ function Reel() {
 function PauseMenu() {
   const bindings = useGameStore((s) => s.bindings);
   const muted = useGameStore((s) => s.muted);
+  const [manual, setManual] = useState(false);
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-ink/70 px-6">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-hud">
@@ -239,6 +249,9 @@ function PauseMenu() {
           <MenuBtn onClick={() => bindings?.restart()} tone="ghost">
             Restart
           </MenuBtn>
+          <MenuBtn onClick={() => setManual(true)} tone="ghost">
+            How to play
+          </MenuBtn>
           <MenuBtn onClick={() => bindings?.toggleMute()} tone="ghost">
             <span className="inline-flex items-center gap-2">
               {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
@@ -247,9 +260,10 @@ function PauseMenu() {
           </MenuBtn>
         </div>
         <p className="mt-5 text-xs leading-relaxed text-faint">
-          W/S drive or walk · A/D turn · F enter cars and doors · Space hold in the alley
+          WASD drive or walk · F doors, talk, envelope · Space hold the floor and the alley
         </p>
       </div>
+      {manual ? <PlayerManual onClose={() => setManual(false)} /> : null}
     </div>
   );
 }
@@ -464,13 +478,13 @@ function LeadMark() {
 }
 
 function Beats() {
-  const chapter = useGameStore((s) => s.chapter);
+  const beat = useGameStore((s) => s.beat);
   return (
     <ol className="absolute top-[max(6.4rem,calc(env(safe-area-inset-top)+4.2rem))] left-[max(0.75rem,env(safe-area-inset-left))] flex max-w-40 flex-col gap-1">
-      {BEATS.map((beat, i) => (
-        <li key={beat} className={"text-[10px] tracking-wide " + (i < chapter ? "text-foam" : i === chapter ? "text-foam" : "text-faint")}>
-          {i < chapter ? "· " : i === chapter ? "→ " : "  "}
-          {beat}
+      {BEATS.map((label, i) => (
+        <li key={label} className={"text-[10px] tracking-wide " + (i <= beat ? "text-foam" : "text-faint")}>
+          {i < beat ? "· " : i === beat ? "→ " : "  "}
+          {label}
         </li>
       ))}
     </ol>

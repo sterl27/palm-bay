@@ -55,6 +55,8 @@ export type Sim = {
   tookEnvelope: boolean;
   roomClock: number;
   heardAlley: boolean;
+  bumpForgiven: boolean;
+  alleyArmed: boolean;
   talked: number[];
 };
 
@@ -190,6 +192,8 @@ export function createSim(): Sim {
     tookEnvelope: false,
     roomClock: 0,
     heardAlley: false,
+    bumpForgiven: false,
+    alleyArmed: false,
     talked: [],
   };
 }
@@ -209,6 +213,15 @@ export function blipOf(sim: Sim) {
   if (sim.chapter === 1) return ZONES.door;
   if (sim.chapter === 2) return sim.roomOwned ? ZONES.back : sim.tookEnvelope ? ZONES.vip : ZONES.bar;
   return ZONES.standoff;
+}
+
+/** Index into BEATS (0-5) for the HUD list; 6 once the night is done. */
+export function beatOf(sim: Sim) {
+  if (sim.ended && !sim.failed) return 6;
+  if (sim.chapter === 0) return 0;
+  if (sim.chapter === 1) return 2;
+  if (sim.chapter === 2) return sim.roomOwned ? 5 : sim.tookEnvelope ? 4 : 3;
+  return 5;
 }
 
 export function objectiveOf(sim: Sim) {
@@ -287,14 +300,20 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     }
     const fx = -Math.sin(p.yaw);
     const fz = -Math.cos(p.yaw);
-    let nx = p.x + fx * p.speed * dt;
-    let nz = p.z + fz * p.speed * dt;
+    const nx = p.x + fx * p.speed * dt;
+    const nz = p.z + fz * p.speed * dt;
     const hit = resolveCircle(nx, nz, 1.35, colliders);
     if (Math.abs(hit.x - nx) > 0.01 || Math.abs(hit.z - nz) > 0.01) {
       const hard = Math.abs(p.speed) > 6;
       p.speed *= 0.35;
       sim.trauma = Math.min(1, sim.trauma + (hard ? 0.45 : 0.12));
-      if (hard) bust(sim, events, sim.lead === "lead" ? "The car can take it. Once." : "Too hot. Ease the nose.");
+      if (hard && sim.lead === "lead" && !sim.bumpForgiven) {
+        sim.bumpForgiven = true;
+        sim.toast = "The car can take it. Once.";
+        sim.toastT = 1.8;
+      } else if (hard) {
+        bust(sim, events, "Too hot. Ease the nose.");
+      }
     }
     p.x = hit.x;
     p.z = hit.z;
@@ -320,12 +339,15 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
   }
 
   sim.prompt = "";
+  // Hint-only prompts don't claim F, so people nearby can still be talked to.
+  let softPrompt = false;
 
   if (p.inCar) {
     if (near(p.x, p.z, ZONES.curb) && Math.abs(p.speed) < 4) {
       sim.prompt = "Park · F to step out";
     }
     if (actions.enter && Math.abs(p.speed) < 5.5) {
+      const parkSpeed = Math.abs(p.speed);
       p.inCar = false;
       p.speed = 0;
       p.x += -Math.cos(p.yaw) * 1.7;
@@ -336,7 +358,7 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
       events.push({ type: "exit" });
       if (sim.chapter === 0 && near(p.carX, p.carZ, ZONES.curb)) {
         sim.chapter = 1;
-        const clean = Math.abs(p.speed) < 2.2;
+        const clean = parkSpeed < 2.2;
         if (clean && !sim.parkedClean) {
           sim.parkedClean = true;
           const bonus = sim.lead === "lead" ? 30 : 18;
@@ -397,6 +419,7 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
           }
         } else if (inClub(p.x, p.z)) {
           sim.prompt = "Bar. The envelope is waiting.";
+          softPrompt = true;
         }
       } else if (!sim.roomOwned && near(p.x, p.z, ZONES.vip)) {
         sim.prompt = "Hold Space · Take the floor";
@@ -416,6 +439,7 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
         }
       } else if (sim.tookEnvelope && inClub(p.x, p.z) && !sim.roomOwned) {
         sim.prompt = "Find the floor. Hold it.";
+        softPrompt = true;
       }
       if (near(p.x, p.z, ZONES.back)) {
         if (!sim.roomOwned) {
@@ -436,11 +460,14 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
     }
 
     if (sim.chapter === 3 && near(p.x, p.z, ZONES.standoff)) {
+      // The standoff only uses Space, so F stays free for talking to him.
+      softPrompt = true;
       sim.prompt = sim.night === 2 ? "Hold Space — he does not blink" : "Hold Space — stand your ground";
       if (actions.handbrake || actions.fire) {
         const holdRate = (sim.lead === "quiet" ? 1.55 : sim.lead === "voice" ? 1.05 : 1) * (sim.heardAlley ? 1.2 : 1);
         const need = sim.night === 2 ? 2.6 : 1.7;
         sim.hold = Math.min(1, sim.hold + (dt / need) * holdRate);
+        if (sim.hold > 0.15) sim.alleyArmed = true;
         if (sim.hold >= 1) {
           sim.score += sim.night === 2 ? 50 : 30;
           sim.ended = true;
@@ -448,9 +475,11 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
           events.push({ type: "win" });
         }
       } else if (sim.night === 2) {
-        const before = sim.hold;
-        sim.hold = Math.max(0, sim.hold - dt * 0.7);
-        if (before > 0.15 && sim.hold <= 0) bust(sim, events, "You blinked.");
+        sim.hold = Math.max(0, sim.hold - dt * 0.9);
+        if (sim.alleyArmed && sim.hold <= 0) {
+          sim.alleyArmed = false;
+          bust(sim, events, "You blinked.");
+        }
       } else {
         sim.hold = Math.max(0, sim.hold - dt * 0.45);
       }
@@ -468,9 +497,11 @@ export function stepSim(sim: Sim, dt: number, actions: Actions, colliders: AABB[
       who = n;
     }
   }
-  if (who && nearest < 2.15 && !sim.prompt && !p.inCar) {
+  if (who && nearest < 2.15 && (!sim.prompt || softPrompt) && !p.inCar) {
     const name = who.kind === "rapper" ? "Him" : who.kind === "beard" ? "The beard" : who.kind === "street" ? "The curb" : "The rope";
-    sim.prompt = `F · ${name}`;
+    const talk = `F · ${name}`;
+    if (!sim.prompt || sim.chapter !== 3) sim.prompt = talk;
+    else if (!sim.talked.includes(who.seed)) sim.prompt = `${sim.prompt} · ${talk}`;
     if (actions.enter && !sim.talked.includes(who.seed)) {
       sim.talked.push(who.seed);
       const line =

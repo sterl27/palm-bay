@@ -6,6 +6,7 @@ export type Phase = "loading" | "title" | "play" | "pause" | "win" | "fail";
 export type HudSnap = {
   phase: Phase;
   chapter: number;
+  beat: number;
   chapterTitle: string;
   objective: string;
   prompt: string;
@@ -32,6 +33,7 @@ export type HudSnap = {
 const empty: HudSnap = {
   phase: "loading",
   chapter: 0,
+  beat: 0,
   chapterTitle: "Arrival",
   objective: "",
   prompt: "",

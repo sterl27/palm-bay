@@ -21,6 +21,7 @@ interface SCWidget {
 
 export function RadioStation() {
   const inVehicle = useGameStore((s) => s.inVehicle);
+  const muted = useGameStore((s) => s.muted);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const widgetRef = useRef<SCWidget | null>(null);
   const [on, setOn] = useState(false);
@@ -28,6 +29,10 @@ export function RadioStation() {
   const [nowPlaying, setNowPlaying] = useState<{ title: string; artwork: string } | null>(null);
   const [progress, setProgress] = useState(0);
   const [popup, setPopup] = useState(false);
+  // M mutes the whole game, radio included.
+  const level = muted ? 0 : volume;
+  const levelRef = useRef(level);
+  levelRef.current = level;
 
   // Load SoundCloud Widget API
   useEffect(() => {
@@ -50,6 +55,7 @@ export function RadioStation() {
       const widget = window.SC.Widget(iframe);
       widgetRef.current = widget;
       widget.bind("play", () => {
+        widget.setVolume(levelRef.current);
         widget.getCurrentSound((sound) => {
           if (!sound) return;
           setNowPlaying({
@@ -82,8 +88,8 @@ export function RadioStation() {
 
   // Sync volume
   useEffect(() => {
-    widgetRef.current?.setVolume(volume);
-  }, [volume]);
+    widgetRef.current?.setVolume(level);
+  }, [level]);
 
   // Key bindings — R toggles, , / . skip, - / = volume
   // input.ts calls preventDefault on KeyR but NOT stopPropagation, so this listener fires too
