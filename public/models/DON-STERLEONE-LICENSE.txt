@@ -1,0 +1,28 @@
+Don Sterleone player model
+==========================
+
+Base asset: "Businessman" rigged GLB
+Source: https://grab3d.com/models/characters/businessman/
+Download: https://grab3d.com/dl/businessman-rigged/businessman-rigged.glb
+License: CC0 1.0 Universal — public domain
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+To the extent possible under law, Grab3D has waived all copyright and related
+or neighboring rights to the 3D models, textures and images in that package.
+This work is published from: Germany.
+
+Origin / AI disclosure (from the publisher)
+-------------------------------------------
+Method: AI-assisted (contains AI-generated content).
+Base mesh and textures were generated with an AI image-to-3D tool (Meshy),
+then cleaned up, scaled, textured and checked in Blender. The skeleton,
+skinning, and the walk and run clips were added with Meshy Auto-Rig.
+
+What this game changed
+----------------------
+The base-color texture was recolored for Don Sterleone: black three-piece
+suit, black tie, black shoes, and slicked grey hair and beard. The mesh was
+simplified for the web. Idle is derived from the walk clip. Sunglasses, the
+white pocket square, the watch chain, and the dress-shoe covers are meshes
+parented to the rig in src/game/meshes.ts. Those additions are original to
+this repository and may be used with the game.
